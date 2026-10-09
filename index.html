@@ -4764,31 +4764,227 @@ function layout(nodes, carriers, opt) {
       zb.z = z; zoneBoxes[z.k] = zb;
     });
     BR.snapped = Object.values(zoneBoxes).reduce((s, zb) => s + zb.items.filter(it => it.kind === 'sub').length, 0);
+    /* ---------- 一级区域:二级框在阵营可用区内做「蛇形条带」正交拼装 ----------
+       可用区 = 画布安全矩形反投到地面得到的旋转矩形(u = 屏幕横向, d = 纵深),按 u 切成 A │ 公共 │ B 三条;
+       每条内从远到近逐条带排二级框(条带内顶边对齐、左右间隔固定),条带方向左右交替,
+       同一一级区域跨条带时在拐角处用直角桥接,一级轮廓 = 各条带片段(内容 + L1_PAD)与桥接的并集 → 直角多边形。 */
     const DA = '阵营A「零日」', DB = '阵营B「溢出」', DP = '公共域';
-    const campZones = dom => Object.values(zoneBoxes).filter(zb => zb.z.dom === dom);
-    const cA = box('camp', DA, campZones(DA), G1X, G1Z, 0, 0, 0, 0, 1.5), cB = box('camp', DB, campZones(DB), G1X, G1Z, 0, 0, 0, 0, 1.5);
-    const cP = box('camp', DP, campZones(DP), G1X, G1Z, 0, 0, 0, 0, 1.5);
-    const rectAsp = (W, H) => (ca * W + sa * H) / (se * (sa * W + ca * H) + 1.5);
-    const TGT = TN.ASP || 1.7;
-    let best = null;
-    cA.vars.forEach((va, ia) => cB.vars.forEach((vb, ib) => cP.vars.forEach((vp, ip) => {
-      const W = va.w + vp.w + vb.w + 2 * GDOM, H = Math.max(va.h, vb.h, vp.h);
-      const sc = Math.abs(Math.log(rectAsp(W, H) / TGT)) * (TN.AW || 12) + Math.abs(Math.log(vp.h / Math.max(va.h, vb.h))) * (TN.PHW || 4) + Math.abs(Math.log(va.h / vb.h)) * 0.8 + (W * H) / (va.w * va.h + vb.w * vb.h + vp.w * vp.h) * 0.6 + (ia === ib ? 0 : 0);
-      if (!best || sc < best.sc) best = { sc, ia, ib, ip, W, H }; })));
-    { const va = cA.vars[best.ia], vb = cB.vars[best.ib], vp = cP.vars[best.ip];
-      const Hm = Math.max(va.h, vb.h); cA.place(0, 0, va); cP.place(va.w + GDOM, Math.max(0, (Hm - vp.h) / 2), vp); /* 公共域在两阵营之间上下居中 */ cB.place(va.w + GDOM + vp.w + GDOM, 0, vb); }
-    BR.gridEx = [+best.W.toFixed(2), +best.H.toFixed(2), +rectAsp(best.W, best.H).toFixed(3)];
-    blobs.forEach(g => { if (!g.local || g.x !== 0) return; }); // 节点坐标已是世界坐标(g.x = g.z = 0)
-    const l3Rows = [], l2Rows = [], zoneRects = {}, subRects = {}, subFrames = {}, zoneDash = {}, carBlocks = {};
+    const ZORD = ['接入区', 'DMZ', '测试生产区', '核心区', '运维区', '办公内网'];
+    const zrank = n => { const i = ZORD.indexOf(n); return i < 0 ? 99 : i; };
+    const campZones = dom => Object.values(zoneBoxes).filter(zb => zb.z.dom === dom).sort((a, b) => zrank(a.z.name) - zrank(b.z.name) || (a.z.name < b.z.name ? -1 : 1));
+    const P1 = PR.L1_PAD, ZSX = 2 * P1 + G1X, ZSZ = 2 * P1 + G1Z; // 不同一级区域内容之间的最小距离(两边 PAD + GAP)
+    const TGT = TN.ASP || 1.8; // 画布安全区宽高比(1920×1080 去掉右侧面板)
+    const seqOf = dom => { const out = []; campZones(dom).forEach(zb => { const subs = zb.items.filter(it => it.kind === 'sub'), cars = zb.items.filter(it => it.kind !== 'sub');
+      subs.sort((a, b) => b.n - a.n || (a.name < b.name ? -1 : 1)); subs.concat(cars).forEach(it => out.push({ zb, it })); }); return out; };
+    const SEQ = { A: seqOf(DA), P: seqOf(DP), B: seqOf(DB) };
+    function bandIv(R, za, zb) { // 条带(含 PAD 的上下沿 za..zb)在可用区内的横向区间 → 内容区间;阵营分界是世界坐标竖线 x = xa / xb
+      const zm = (za + zb) / 2;
+      // 外沿(屏幕四边)取条带上下沿中较宽的一侧,允许角部略探出,让阶梯更贴近斜边;阵营分界竖线严格
+      const G = TN.GEN == null ? -1 : TN.GEN, GD = TN.GD == null ? G : TN.GD, mix = (f) => { const m = f(zm), e = [f(za), f(zb)]; return [m + G * (Math.min(...e) - m), m + G * (Math.max(...e) - m)]; };
+      const mixD = (f) => { const m = f(zm), e = [f(za), f(zb)]; return [m + GD * (Math.min(...e) - m), m + GD * (Math.max(...e) - m)]; };
+      const uL = mix(z => (R.ua + sa * z) / ca)[0], dL = mixD(z => (R.d0 - ca * z) / sa)[0], uH = mix(z => (R.ub + sa * z) / ca)[1], dH = mixD(z => (R.d1 - ca * z) / sa)[1];
+      const lo = Math.max(uL, dL, R.xa == null ? -1e9 : R.xa), hi = Math.min(uH, dH, R.xb == null ? 1e9 : R.xb);
+      return [lo + P1, hi - P1];
+    }
+    const narrow = (it, H) => { let bv = null; it.vars.forEach(v => { if (v.h <= H + 1e-3 && (!bv || v.w < bv.w)) bv = v; }); return bv; };
+    function bestBand(seq, i, zt, R, cap) {
+      const hs = [...new Set(seq.slice(i, i + 10).flatMap(e => e.it.vars.map(v => +v.h.toFixed(4))))].sort((a, b) => a - b);
+      let best = null;
+      for (const H of hs) {
+        const iv = bandIv(R, zt - P1, zt + H + P1), W = iv[1] - iv[0]; if (W <= 0) continue;
+        // 同一一级区域内的二级框可以换顺序:当前区域里先放得下的先放(窄处用小框补角),区域顺序不变
+        let w = 0, area = 0; const picks = [], es = [], rest = seq.slice(i);
+        while (rest.length && es.length < cap) { const zc = rest[0].zb; let hit = -1, hv = null, hg = 0;
+          for (let t = 0; t < rest.length && rest[t].zb === zc; t++) { const e = rest[t], bv = narrow(e.it, H); if (!bv) continue;
+            const g = es.length ? (e.zb === es[es.length - 1].zb ? G2X : ZSX) : 0; if (w + g + bv.w > W + 1e-6) continue; hit = t; hv = bv; hg = g; break; }
+          if (hit < 0) break; const e = rest.splice(hit, 1)[0]; w += hg + hv.w; area += hv.w * hv.h; picks.push(hv); es.push(e); }
+        if (!picks.length) continue;
+        const k = i + es.length, last = k >= seq.length, sc = area / ((last ? Math.max(w, 1) : W) * H) + (last ? 0.5 : 0) - (TN.HB || 0) * H / 30; // HB:偏好矮条带(阶梯更细)
+        if (!best || sc > best.sc + 1e-9) best = { H, iv, k, picks, es, sc, w };
+      }
+      if (!best) return null;
+      // 行宽补齐:换用更宽但不更高的方案吸收余量(不拉伸)
+      const Hm = Math.max(...best.picks.map(v => v.h)), W = best.iv[1] - best.iv[0];
+      for (let t = 0; t < 40; t++) { let bd = 0, bt = -1, bvv = null;
+        best.picks.forEach((cur, q) => best.es[q].it.vars.forEach(v => { const d = v.w - cur.w; if (d > bd + 1e-6 && v.h <= Hm + 1e-3 && best.w + d <= W + 1e-6) { bd = d; bt = q; bvv = v; } }));
+        if (bt < 0) break; best.w += bd; best.picks[bt] = bvv; }
+      best.Hm = Hm; return best;
+    }
+    function zoneSpan(seq, b, zb) { let x0 = 1e9, x1 = -1e9; b.pos.forEach((p, q) => { if (seq[b.i + q].zb !== zb) return; x0 = Math.min(x0, p); x1 = Math.max(x1, p + b.picks[q].w); }); return [x0 - P1, x1 + P1]; }
+    function layBand(seq, b, dir, R) { // 条带内定位:余量分给一级区域分界处(区域之间间隔 ≥ GAP),无分界则留在末端
+      const n = b.picks.length, W = b.iv[1] - b.iv[0], gaps = [];
+      for (let q = 1; q < n; q++) gaps.push(seq[b.i + q].zb === seq[b.i + q - 1].zb ? G2X : ZSX);
+      const bnd = gaps.map((g, q) => g === ZSX && seq[b.i + q + 1].zb !== seq[b.i + q].zb ? q : -1).filter(q => q >= 0);
+      const left = Math.max(0, W - b.w), lastBand = b.k >= seq.length;
+      if (!lastBand && bnd.length) bnd.forEach(q => { gaps[q] += left / bnd.length; });
+      b.pos = []; let x = dir > 0 ? b.iv[0] : b.iv[1];
+      for (let q = 0; q < n; q++) { const w = b.picks[q].w; if (q) x += dir * gaps[q - 1]; if (dir > 0) { b.pos.push(x); x += w; } else { x -= w; b.pos.push(x); } }
+      // 余量没分到区域分界时,统一留在靠公共域的一侧(A 留右、B 留左、公共域居中),外侧始终贴住画面边
+      if (lastBand || !bnd.length) { const mn = Math.min(...b.pos), mx = Math.max(...b.pos.map((p, q) => p + b.picks[q].w)), side = R.side || 0;
+        const tgt = side > 0 ? b.iv[0] : side < 0 ? b.iv[1] - (mx - mn) : (b.iv[0] + b.iv[1] - (mx - mn)) / 2; const d = tgt - mn; b.pos = b.pos.map(p => p + d); }
+    }
+    function fillCamp(seq0, R, off) { nFillG++; const seq = seq0.slice();
+      const zs = [[R.ua, R.d0], [R.ub, R.d0], [R.ua, R.d1], [R.ub, R.d1]].map(([u, d]) => -sa * u + ca * d);
+      const zMin = Math.min(...zs.filter(Number.isFinite)), zMax = R.zCap != null ? R.zCap : Math.max(...zs);
+      const bands = []; let i = 0, zt = zMin + P1 + (off || 0), guard = 0; const caps = {};
+      while (i < seq.length) {
+        if (++guard > 3000 || zt > zMax) return null;
+        const bi = bands.length, dir = bi % 2 ? -1 : 1;
+        const b = bestBand(seq, i, zt, R, caps[bi] || 1e9);
+        if (!b) { zt += 1.0; continue; }
+        { const rest = seq.slice(i).filter(e => !b.es.includes(e)); seq.splice(i, seq.length - i, ...b.es, ...rest); } // 本条带选中的框排到序列前面
+        b.i = i; b.zt = zt; b.dir = dir; layBand(seq, b, dir, R);
+        const prev = bands[bi - 1];
+        if (prev && seq[i].zb === seq[i - 1].zb) { // 条带内有余量时整体平移,让跨条带的同一区域对上
+          const a = zoneSpan(seq, prev, seq[i].zb), c = zoneSpan(seq, b, seq[i].zb), need = 2 * P1 + 1.0;
+          const lo = b.iv[0] - Math.min(...b.pos), hi = b.iv[1] - Math.max(...b.pos.map((p, q) => p + b.picks[q].w));
+          let d = 0; if (c[0] > a[1] - need) d = (a[1] - need) - c[0]; else if (c[1] < a[0] + need) d = (a[0] + need) - c[1];
+          d = Math.max(lo, Math.min(hi, d)); if (Math.abs(d) > 1e-9) b.pos = b.pos.map(p => p + d);
+        }
+        if (prev && seq[i].zb === seq[i - 1].zb) { // 同一一级区域跨条带:两段必须有足够横向重叠才能直角桥接
+          const a = zoneSpan(seq, prev, seq[i].zb), c = zoneSpan(seq, b, seq[i].zb);
+          if (Math.min(a[1], c[1]) - Math.max(a[0], c[0]) < 2 * P1 + 1.0) {
+            let tail = 0; for (let q = prev.picks.length - 1; q >= 0 && seq[prev.i + q].zb === seq[i].zb; q--) tail++;
+            if (tail < prev.picks.length) { bands.pop(); caps[bi - 1] = prev.picks.length - tail; i = prev.i; zt = prev.zt; continue; }
+          }
+        }
+        bands.push(b); i = b.k; zt = zt + b.Hm + ZSZ;
+      }
+      return bands;
+    }
+    /* 可用区:u ∈ [-U/2, U/2](屏幕横向)、d ∈ [-D/2, D/2](纵深),U = 画布宽高比 × 屏幕高度;
+       A │ 公共 │ B 用世界坐标竖线 x = X1、X2 分开(间隔 DOMAIN_GAP),公共域是正中的一条竖带 */
+    let nFillG = 0;
+    const PF = TN.PF || 1; // 公共域竖带只占纵深的 PF(两端留给两阵营补满上下角)
+    const Rof = (D, xa, xb, f) => { const U = TGT * (se * D + 1.5), h = D * (f || 1) / 2; return { ua: -U / 2, ub: U / 2, d0: -h, d1: h, xa, xb }; };
+    /* 轮廓线上浮(skyline):条带只决定横向顺序和位置,每个二级框/承载块再各自向远处(z 变小)上浮,
+       直到碰到上方的框(同区间隔 L2_GAP×Z_MUL、跨区 2·L1_PAD + L1_GAP×Z_MUL)或画面上沿/右沿;
+       同区同条带相邻框保持纵向重叠,保证一级轮廓连通。条带倾斜留下的三角空白由此补满 */
+    function itemsOf(bands, R) { const its = []; bands.forEach((b, bi) => { b.items = []; b.picks.forEach((v, q) => { const it = { bi, q, e: b.es[q], zb: b.es[q].zb, v, x0: b.pos[q], x1: b.pos[q] + v.w, z0: b.zt, h: v.h, R, band: b.items }; b.items[q] = it; its.push(it); }); }); return its; }
+    function compactUp(its) {
+      for (let pass = 0; pass < 12; pass++) { let moved = 0; its.slice().sort((a, b) => a.z0 - b.z0).forEach(a => {
+        const R = a.R; let zn = Math.max((R.d0 - sa * (a.x0 - P1)) / ca + P1, (ca * (a.x1 + P1) - R.ub) / sa + P1);
+        its.forEach(o => { if (o === a || o.z0 >= a.z0 - 1e-9) return; const same = o.zb === a.zb, gx = same ? G2X : ZSX, gz = same ? G2Z : ZSZ;
+          if (a.x0 - gx < o.x1 - 1e-6 && o.x0 < a.x1 + gx - 1e-6) zn = Math.max(zn, o.z0 + o.h + gz); });
+        [a.band[a.q - 1], a.band[a.q + 1]].forEach(n => { if (n && n.zb === a.zb) zn = Math.max(zn, n.z0 + 1.0 - a.h); });
+        if (zn < a.z0 - 1e-6) { a.z0 = zn; moved++; } }); if (!moved) break; } }
+    function compactDown(its, sel) {
+      for (let pass = 0; pass < 12; pass++) { let moved = 0; its.filter(sel).sort((a, b) => (b.z0 + b.h) - (a.z0 + a.h)).forEach(a => {
+        const R = a.R; let zn = Math.min((R.d1 - sa * (a.x1 + P1)) / ca - P1, (ca * (a.x0 - P1) - R.ua) / sa - P1) - a.h;
+        its.forEach(o => { if (o === a || o.z0 + o.h <= a.z0 + a.h + 1e-9) return; const same = o.zb === a.zb, gx = same ? G2X : ZSX, gz = same ? G2Z : ZSZ;
+          if (a.x0 - gx < o.x1 - 1e-6 && o.x0 < a.x1 + gx - 1e-6) zn = Math.min(zn, o.z0 - gz - a.h); });
+        [a.band[a.q - 1], a.band[a.q + 1]].forEach(n => { if (n && n.zb === a.zb) zn = Math.min(zn, n.z0 + n.h - 1.0); });
+        if (zn > a.z0 + 1e-6) { a.z0 = zn; moved++; } }); if (!moved) break; } }
+    // 一列试排:条带往下不设底(只受左右边约束),上浮压紧后再检查是否都在画面下沿以内
+    function runCol(seq, R, off) {
+      const bands = fillCamp(seq, Object.assign({}, R, { d1: 1e9, zCap: -sa * R.ua + ca * R.d1 + 400 }), off); if (!bands) return null;
+      const its = itemsOf(bands, R); compactUp(its);
+      for (const a of its) { if (sa * (a.x1 + P1) + ca * (a.z0 + a.h + P1) > R.d1 + 1e-6) return null; if (!TN.NOUCHK && (ca * (a.x1 + P1) - sa * (a.z0 - P1) > R.ub + 0.5 || ca * (a.x0 - P1) - sa * (a.z0 + a.h + P1) < R.ua - 0.5)) return null; }
+      return { bands, its };
+    }
+    function minRight(seq, D, xa, side, f, off) { // 左侧从 xa 起,求能放下 seq 的最小右边界
+      let lo = (xa == null ? -150 : xa + 4), hi = 250; if (!runCol(seq, Object.assign(Rof(D, xa, hi, f), { side }), off)) return null;
+      for (let t = 0; t < 13; t++) { const m = (lo + hi) / 2; if (runCol(seq, Object.assign(Rof(D, xa, m, f), { side }), off)) hi = m; else lo = m; }
+      return hi;
+    }
+    /* 每个阵营再按世界 x 分成 KC 条竖列(一级区域整块归属一列、顺序不变),条带更短 → 阶梯更细、四角更满 */
+    const KC = TN.KC || 2;
+    function splitSeq(seq, k) { const zs = [...new Set(seq.map(e => e.zb))]; k = Math.min(k, zs.length); if (k <= 1) return [seq];
+      const ar = zb => zb.items.reduce((t, it) => t + Math.min(...it.vars.map(v => v.w * v.h)), 0), A = zs.map(ar), n = zs.length, pre = [0]; A.forEach(a => pre.push(pre[pre.length - 1] + a));
+      const dp = Array.from({ length: k + 1 }, () => new Array(n + 1).fill(1e18)), cut = Array.from({ length: k + 1 }, () => new Array(n + 1).fill(0)); dp[0][0] = 0;
+      for (let g = 1; g <= k; g++) for (let j = 1; j <= n; j++) for (let i = g - 1; i < j; i++) { const v = Math.max(dp[g - 1][i], pre[j] - pre[i]); if (v < dp[g][j]) { dp[g][j] = v; cut[g][j] = i; } }
+      const parts = []; let j = n; for (let g = k; g >= 1; g--) { const i = cut[g][j]; parts.unshift(new Set(zs.slice(i, j))); j = i; }
+      return parts.map(st => seq.filter(e => st.has(e.zb))); }
+    const COLS = []; splitSeq(SEQ.A, TN.KCA || KC).forEach((q, t) => COLS.push({ key: 'A' + t, camp: 'A', seq: q, side: 1 }));
+    COLS.push({ key: 'P', camp: 'P', seq: SEQ.P, side: 0, f: PF }); splitSeq(SEQ.B, TN.KCB || KC).forEach((q, t) => COLS.push({ key: 'B' + t, camp: 'B', seq: q, side: -1 }));
+    COLS.forEach((c, t) => { const nx = COLS[t + 1]; c.gap = nx ? (nx.camp === c.camp ? G1X : GDOM) : 0; });
+    function tryD(D, offs) { let xa = null; const xs = [];
+      for (let t = 0; t < COLS.length - 1; t++) { const c = COLS[t], xb = minRight(c.seq, D, xa, c.side, c.f, offs && offs[t]); if (xb == null) return null; xs.push([xa, xb]); xa = xb + c.gap; }
+      const last = COLS[COLS.length - 1]; if (!runCol(last.seq, Object.assign(Rof(D, xa, null), { side: last.side }), offs && offs[COLS.length - 1])) return null; xs.push([xa, null]); return { D, xs }; }
+    let dLo = 80, dHi = 400, sol = null; const T0 = Date.now();
+    for (let t = 0; t < 14; t++) { const D = (dLo + dHi) / 2, r = tryD(D); if (r) { dHi = D; sol = r; } else dLo = D; }
+    sol.offs = COLS.map(() => 0);
+    /* 角部:默认相机按内容外包取景,在 u-d 坐标里按「内容外包」的四角各取一块,
+       对最左列、最右列试不同的条带起点偏移,取四角覆盖最小值最大的组合 */
+    const rectsOf = its => its.map(a => [a.x0 - P1, a.z0 - P1, a.x1 + P1, a.z0 + a.h + P1]);
+    function cornerCov(rs) { let U0 = 1e9, U1 = -1e9, D0 = 1e9, D1 = -1e9;
+      rs.forEach(r => [[r[0], r[1]], [r[2], r[1]], [r[0], r[3]], [r[2], r[3]]].forEach(([x, z]) => { const u = ca * x - sa * z, d = sa * x + ca * z; U0 = Math.min(U0, u); U1 = Math.max(U1, u); D0 = Math.min(D0, d); D1 = Math.max(D1, d); }));
+      const cu = (TN.CU || 0.14) * (U1 - U0), cd = (TN.CD || 0.1) * (D1 - D0), N = 8, out = [];
+      [[U0, D0], [U1 - cu, D0], [U0, D1 - cd], [U1 - cu, D1 - cd]].forEach(([u0, d0]) => { let hit = 0;
+        for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const u = u0 + (i + 0.5) / N * cu, d = d0 + (j + 0.5) / N * cd, x = ca * u + sa * d, z = -sa * u + ca * d; if (rs.some(r => x > r[0] && x < r[2] && z > r[1] && z < r[3])) hit++; }
+        out.push(hit / (N * N)); });
+      return out; }
+    if (!TN.NOCORNER) {
+      const nC = COLS.length, D = sol.D * (1 + (TN.DS == null ? 0 : TN.DS)), Rs = COLS.map((c, t) => Object.assign(Rof(D, sol.xs[t][0], sol.xs[t][1], c.f), { side: c.side }));
+      const mid = []; let okMid = true; for (let t = 1; t < nC - 1; t++) { const r = runCol(COLS[t].seq, Rs[t], 0); if (!r) { okMid = false; break; } mid.push(...rectsOf(r.its)); }
+      const opt = t => { const o = []; for (let off = 0; off <= (TN.OFFMAX || 24); off += 1.5) { const r = runCol(COLS[t].seq, Rs[t], off); if (r) o.push({ off, rs: rectsOf(r.its) }); } return o; };
+      if (okMid) { const oA = opt(0), oB = opt(nC - 1); let best = null;
+        oA.forEach(a => oB.forEach(b => { const cv = cornerCov(a.rs.concat(mid, b.rs)), sc = Math.min(...cv) + 0.1 * cv.reduce((x, y) => x + y, 0); if (!best || sc > best.sc) best = { sc, cv, a: a.off, b: b.off }; }));
+        if (best) { sol.D = D; sol.offs = COLS.map((c, t) => t === 0 ? best.a : t === nC - 1 ? best.b : 0); BR.corner = best.cv; } } }
+    { const { D, xs } = sol; sol.cols = COLS.map((c, t) => { const R = Object.assign(Rof(D, xs[t][0], xs[t][1], c.f), { side: c.side }); let off = sol.offs[t] || 0;
+        if (c.camp === 'P') { // 公共域竖带:内容在可用纵深里上下居中
+          let offMax = 0; for (let st = 64; st >= 0.5; st /= 2) { while (runCol(c.seq, R, offMax + st)) offMax += st; }
+          off = offMax / 2; while (off > 0 && !runCol(c.seq, R, off)) off -= 0.5; off = Math.max(0, off); }
+        const r = runCol(c.seq, R, off) || { bands: fillCamp(c.seq, R, off), its: null }; if (!r.its) { r.its = itemsOf(r.bands, R); }
+        return { key: c.key, camp: c.camp, R, bands: r.bands, its: r.its }; });
+      const xP = sol.cols.find(c => c.camp === 'P').R; sol.X1 = xP.xa - GDOM; sol.X2 = xP.xb; sol.wP = xP.xb - xP.xa; BR.packMs = Date.now() - T0; BR.nFill = nFillG; }
+    const ITM = []; sol.cols.forEach((cl, ci) => cl.its.forEach(it => { it.ci = ci; ITM.push(it); }));
+    // 下半部分再向近处(z 变大)下沉,贴住画面下沿/左沿,让下方两角同样饱满
+    if (!TN.NODOWN) { const dc = it => sa * (it.x0 + it.x1) / 2 + ca * (it.z0 + it.h / 2); const ds = ITM.map(dc).sort((a, b) => a - b), dm = TN.SPREAD === 0 ? ds[Math.floor(ds.length * (TN.DQ || 0.6))] : -1e9; const z0s = ITM.map(it => it.z0); compactDown(ITM, it => dc(it) > dm); const DF = TN.DF == null ? 1 : TN.DF, DFE = TN.DFE == null ? 1 : TN.DFE, nc = sol.cols.length; if (TN.SPREAD !== 0) { /* 竖向两端对齐:顶端贴上沿、底端贴下沿,中间按原有纵深比例分摊余量(f 随纵深单调不减,保证不产生新重叠) */
+        const zc = ITM.map((it, k) => z0s[k] + it.h / 2), zlo = Math.min(...zc), zhi = Math.max(...zc), pw = TN.SPREAD || 1;
+        ITM.forEach((it, k) => { const f = Math.pow((zc[k] - zlo) / Math.max(1e-6, zhi - zlo), pw); it.z0 = z0s[k] + f * (it.z0 - z0s[k]); }); }
+      else ITM.forEach((it, k) => { const f = (it.ci === 0 || it.ci === nc - 1) ? DFE : DF; it.z0 = z0s[k] + f * (it.z0 - z0s[k]); }); }
+    let gx0 = 1e9, gz0 = 1e9; ITM.forEach(it => { gx0 = Math.min(gx0, it.x0 - P1); gz0 = Math.min(gz0, it.z0 - P1); });
+    BR.dbgTop = sol.cols.map((cl, ci) => { const its = ITM.filter(it => it.ci === ci), R = cl.R; const f = (g) => +Math.max(...its.map(g)).toFixed(1); return { k: cl.key, ub: f(a => ca * (a.x1 + P1) - sa * (a.z0 - P1) - R.ub), ua: f(a => R.ua - (ca * (a.x0 - P1) - sa * (a.z0 + a.h + P1))), d1: f(a => sa * (a.x1 + P1) + ca * (a.z0 + a.h + P1) - R.d1), d0: f(a => R.d0 - (sa * (a.x0 - P1) + ca * (a.z0 - P1))), xa: R.xa == null ? null : f(a => R.xa - (a.x0 - P1)), xb: R.xb == null ? null : f(a => a.x1 + P1 - R.xb) }; });
+    const l3Rows = [], l2Rows = [], zoneRects = {}, subRects = {}, subFrames = {}, zoneDash = {}, carBlocks = {}, zonePoly = {}, zonePieces = {}, zoneArea = {}, zoneLabel = {}, zoneLoops = {}, campRows = {}, zoneRC = {}, campStrip = {};
+    function unionPoly(rs) { // 矩形并集 → 直角多边形外轮廓(格点追踪,去共线点)
+      const q4 = v => Math.round(v * 1e4) / 1e4;
+      const xs = [...new Set(rs.flatMap(r => [q4(r[0]), q4(r[2])]))].sort((a, b) => a - b), zs = [...new Set(rs.flatMap(r => [q4(r[1]), q4(r[3])]))].sort((a, b) => a - b);
+      const nx = xs.length - 1, nz = zs.length - 1, cell = new Uint8Array(Math.max(1, nx * nz)); let area = 0;
+      for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) { const cx = (xs[i] + xs[i + 1]) / 2, cz = (zs[j] + zs[j + 1]) / 2;
+        if (rs.some(r => cx > r[0] && cx < r[2] && cz > r[1] && cz < r[3])) { cell[j * nx + i] = 1; area += (xs[i + 1] - xs[i]) * (zs[j + 1] - zs[j]); } }
+      const inC = (i, j) => i >= 0 && j >= 0 && i < nx && j < nz && cell[j * nx + i] === 1;
+      const nxt = {}; const add = (a, b) => { (nxt[a] = nxt[a] || []).push(b); };
+      for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) { if (!inC(i, j)) continue;
+        if (!inC(i, j - 1)) add(i + ',' + j, (i + 1) + ',' + j); if (!inC(i + 1, j)) add((i + 1) + ',' + j, (i + 1) + ',' + (j + 1));
+        if (!inC(i, j + 1)) add((i + 1) + ',' + (j + 1), i + ',' + (j + 1)); if (!inC(i - 1, j)) add(i + ',' + (j + 1), i + ',' + j); }
+      const loops = [];
+      Object.keys(nxt).forEach(s => { while (nxt[s] && nxt[s].length) { const L = [s]; let c = nxt[s].pop(); while (c !== s) { L.push(c); const o = nxt[c]; if (!o || !o.length) break; c = o.pop(); } loops.push(L); } });
+      const polys = loops.map(L => { const P = L.map(k => { const [i, j] = k.split(',').map(Number); return [xs[i], zs[j]]; }); const out = [];
+        for (let t = 0; t < P.length; t++) { const a = P[(t - 1 + P.length) % P.length], b = P[t], c = P[(t + 1) % P.length]; if ((a[0] === b[0] && b[0] === c[0]) || (a[1] === b[1] && b[1] === c[1])) continue; out.push(b); } return out; });
+      const sArea = P => { let s = 0; for (let t = 0; t < P.length; t++) { const a = P[t], b = P[(t + 1) % P.length]; s += a[0] * b[1] - b[0] * a[1]; } return s / 2; };
+      polys.sort((a, b) => Math.abs(sArea(b)) - Math.abs(sArea(a)));
+      return { poly: polys[0], loops: polys.length, area };
+    }
+    const zoneBandSpans = {};
+    sol.cols.forEach(cl => {
+      const c = cl.key; campRows[c] = [];
+      cl.bands.forEach((b, bi) => {
+        const row = [], l2 = [];
+        b.picks.forEach((v, q) => { const e = b.es[q], it = b.items[q], x = it.x0 - gx0; e.it.place(x, it.z0 - gz0, v); row.push(e.zb.z.name); if (e.it.kind === 'sub') l2.push(e.it.key); e.bi = bi; });
+        if (l2.length) l2Rows.push(l2); campRows[c].push([...new Set(row)]);
+        // 每个一级区域在本条带的片段 = 各框外扩 L1_PAD(不取外包,轮廓紧贴)
+        const per = {}; b.picks.forEach((v, q) => { const e = b.es[q], r = e.it.rect, zk = e.zb.z.dom + '\0' + e.zb.z.name; (per[zk] = per[zk] || []).push([r[0] - P1, r[1] - P1, r[2] + P1, r[3] + P1]); });
+        Object.entries(per).forEach(([zk, rs]) => { (zoneBandSpans[zk] = zoneBandSpans[zk] || []).push({ bi: cl.key + ':' + bi, bn: bi, rs, n: rs.length }); });
+      });
+      const R = cl.R; campStrip[c] = [R.xa, R.xb];
+    });
     Object.values(zoneBoxes).forEach(zb => {
-      const zk = zb.z.dom + '\0' + zb.z.name; zoneRects[zk] = zb.rect; zoneDash[zk] = zb.rect;
-      zb.rowsOut.forEach(r => { const subs = r.filter(it => it.kind === 'sub'); if (subs.length) l2Rows.push(subs.map(s => s.key)); });
+      const zk = zb.z.dom + '\0' + zb.z.name, sp = (zoneBandSpans[zk] || []).sort((a, b) => a.bn - b.bn); if (!sp.length) return;
+      const rs = sp.flatMap(s => s.rs.map(r => r.slice()));
+      for (let t = 1; t < sp.length; t++) { // 相邻条带之间取横向重叠最大的一对框做直角桥接(只一座桥,不围出洞)
+        let bb = null; sp[t - 1].rs.forEach(a => sp[t].rs.forEach(b => { const o0 = Math.max(a[0], b[0]), o1 = Math.min(a[2], b[2]); if (o1 - o0 > 1e-6 && (!bb || o1 - o0 > bb.o1 - bb.o0)) bb = { o0, o1, a, b }; }));
+        if (bb && bb.b[1] > bb.a[3]) rs.push([bb.o0, bb.a[3], bb.o1, bb.b[1]]); }
+      const U = unionPoly(rs); zonePoly[zk] = U.poly; zoneLoops[zk] = U.loops; zoneArea[zk] = +U.area.toFixed(3); zonePieces[zk] = rs;
+      let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; rs.forEach(r => { x0 = Math.min(x0, r[0]); z0 = Math.min(z0, r[1]); x1 = Math.max(x1, r[2]); z1 = Math.max(z1, r[3]); });
+      zoneRects[zk] = [x0, z0, x1, z1]; zoneDash[zk] = [x0, z0, x1, z1];
+      const big = rs.slice().sort((a, b) => (b[2] - b[0]) * (b[3] - b[1]) - (a[2] - a[0]) * (a[3] - a[1]))[0]; zoneLabel[zk] = [(big[0] + big[2]) / 2, (big[1] + big[3]) / 2];
       zb.items.forEach(it => { if (it.kind === 'car') (carBlocks[zk] = carBlocks[zk] || []).push(it.rect); });
       zb.items.filter(it => it.kind === 'sub').forEach(s => { subRects[s.key] = s.inner; subFrames[s.key] = s.rect; s.rowsOut.forEach(r => l3Rows.push(r.map(c => c.g.dom + '\0' + c.g.zone + '\0' + c.g.sub + '\0' + c.g.name))); });
-      zb.z.gridRC = zb.rowsOut.map(r => r.length); zb.z.grow = 'rows' + zb.z.gridRC.join('-'); // 群落形状 = 行列组合
+      zb.z.gridRC = sp.map(s => s.n); zb.z.grow = 'band' + zb.z.gridRC.join('-'); zoneRC[zb.z.dom.slice(0, 3) + '/' + zb.z.name] = zb.z.gridRC;
     });
-    const rowNames = cb => cb.rowsOut.map(r => r.map(z => z.name));
-    BR.grid = { params: Object.assign({}, PR, { gs: +gs.toFixed(4), G3X, G3Z, G2X, G2Z, G1X, G1Z, GDOM }), l3Rows, l2Rows, zoneRects, subRects, subFrames, zoneDash, carBlocks, campRows: { A: rowNames(cA), B: rowNames(cB), P: rowNames(cP) }, zoneRC: Object.fromEntries(Object.values(zoneBoxes).map(zb => [zb.z.dom.slice(0, 3) + '/' + zb.z.name, zb.z.gridRC])) };
+    { let W = 0, H = 0; Object.values(zoneRects).forEach(r => { W = Math.max(W, r[2]); H = Math.max(H, r[3]); }); const rectAsp = (W, H) => (ca * W + sa * H) / (se * (sa * W + ca * H) + 1.5); BR.gridEx = [+W.toFixed(2), +H.toFixed(2), +rectAsp(W, H).toFixed(3), +sol.D.toFixed(2)]; }
+    BR.grid = { params: Object.assign({}, PR, { gs: +gs.toFixed(4), G3X, G3Z, G2X, G2Z, G1X, G1Z, GDOM }), l3Rows, l2Rows, zoneRects, subRects, subFrames, zoneDash, carBlocks, zonePoly, zonePieces, zoneArea, zoneLabel, zoneLoops, campRows, zoneRC, off: [-gx0, -gz0], dbgTop: BR.dbgTop, corner: BR.corner, strip: { D: +sol.D.toFixed(2), X1: +sol.X1.toFixed(2), X2: +sol.X2.toFixed(2), wP: +sol.wP.toFixed(2) } };
     BR.hole = 0; BR.def = []; BR.dbg = [];
 
     const gBoard = {}, sBoard = {}, zBoard = {}, dBoard = {}, cBoard = {};
@@ -4854,6 +5050,7 @@ function layout(nodes, carriers, opt) {
       const cx = (b._x0 + b._x1) / 2, cz = (b._z0 + b._z1) / 2;
       b.ox0 = cx; b.ox1 = cx; b.oz0 = cz; b.oz1 = cz; b.rects = null;
       if (b.level === 'zone' && zmap[b.dom + '\0' + b.name]) b.grow = zmap[b.dom + '\0' + b.name].grow;
+      if (b.level === 'zone' && BR.grid && BR.grid.zoneLabel[b.dom + '\0' + b.name]) { const q = BR.grid.zoneLabel[b.dom + '\0' + b.name]; b.lx = q[0]; b.lz = q[1]; } // 区域名放在最大片段中心(多边形内)
       if (b.level === 'dom') { const pts = []; nodes.forEach((n, i) => { if (n['域'] === b.dom && NP[i]) pts.push([NP[i].x, NP[i].z]); }); b.pts = pts; }
       if (b.level === 'grp' && b.cx == null) { b.cx = cx; b.cz = cz; }
     });
@@ -4873,7 +5070,7 @@ function layout(nodes, carriers, opt) {
   const all = []; NP.forEach((p, i) => all.push({ x: p.x, z: p.z, f: footOf(nodes[i]['3D样式代码']) })); CP.forEach((p, i) => all.push({ x: p.x, z: p.z, f: footOf(carStyle(carriers[i])) }));
   let minD = 1e9, coll = 0, nan = 0;
   for (let i = 0; i < all.length; i++) { if (!isFinite(all[i].x) || !isFinite(all[i].z)) nan++; for (let j = i + 1; j < all.length; j++) { const dx = all[i].x - all[j].x, dz = all[i].z - all[j].z; if (Math.abs(dx) > 2.4 || Math.abs(dz) > 2.4) continue; const d = Math.hypot(dx, dz); minD = Math.min(minD, d); const lim = (all[i].f + all[j].f) / 2; if (Math.abs(dx) < lim && Math.abs(dz) < lim) coll++; } }
-  const L = { U, HY, nodes: NP, carriers: CP, boards, fail, campRatio: +BR.aspect.toFixed(3), zoneRatio: 0, pubRatio: 1.7, campEff: 0, eff: 0, aspect: +BR.aspect.toFixed(3), plateFill: 0, spread: 1, disperse: BR.disperse, seam: BR.seam, pitch: BR.pitch, grid: BR.grid, gridEx: BR.gridEx, dbg: BR.dbg, def: BR.def, snapped: BR.snapped || 0, seamZ: BR.seamZ, padX: PARAMS.L3_PAD, padZ: PARAMS.L3_PAD, params: PARAMS, minSpacing: +minD.toFixed(3), collisions: coll, nan, tree: T, domLabel,
+  const L = { U, HY, nodes: NP, carriers: CP, boards, fail, campRatio: +BR.aspect.toFixed(3), zoneRatio: 0, pubRatio: 1.7, campEff: 0, eff: 0, aspect: +BR.aspect.toFixed(3), plateFill: 0, spread: 1, disperse: BR.disperse, seam: BR.seam, pitch: BR.pitch, grid: BR.grid, packMs: BR.packMs, nFill: BR.nFill, gridEx: BR.gridEx, dbg: BR.dbg, def: BR.def, snapped: BR.snapped || 0, seamZ: BR.seamZ, padX: PARAMS.L3_PAD, padZ: PARAMS.L3_PAD, params: PARAMS, minSpacing: +minD.toFixed(3), collisions: coll, nan, tree: T, domLabel,
     shape: { aspect: +BR.aspect.toFixed(3), world: { w: +BR.W.toFixed(2), h: +BR.H.toFixed(2) }, hole: +BR.hole.toFixed(3), A: { w: +bA.x1.toFixed(2), h: +(bA.z1 - bA.z0).toFixed(2), rects: 1 }, B: { w: +(bB.x1 - bB.x0).toFixed(2), h: +(bB.z1 - bB.z0).toFixed(2), depthRatio: +((bB.z1 - bB.z0) / Math.max(1, bB.x1 - bB.x0)).toFixed(2) }, P: { w: +pCamp.w.toFixed(2), h: +pCamp.h.toFixed(2) }, gapAB: BR.GAPX, arr: arrCount, zoneAspect, preset: { ia: BR.ia, ib: BR.ib, host: BR.host } } };
   L.ms = +(((typeof performance !== 'undefined' ? performance : Date).now()) - t0).toFixed(2);
   return L;
@@ -5205,7 +5402,7 @@ areaRects.forEach(r => { bx0 = Math.min(bx0, r.x0); bx1 = Math.max(bx1, r.x1); b
 const vSeg = [], hSeg = [];
 // 路网只铺在二级子区之间的通道上(比三级缝宽),三级缝本身不铺
 // 网格排版后:路网铺在一级区域之间的通道(含阵营/公共域缝)中线上
-const roadRects = L.grid && L.grid.zoneRects ? Object.values(L.grid.zoneRects).map(r => ({ x0: r[0], z0: r[1], x1: r[2], z1: r[3] })) : areaRects;
+const roadRects = L.grid && L.grid.zonePieces ? Object.values(L.grid.zonePieces).flat().map(r => ({ x0: r[0], z0: r[1], x1: r[2], z1: r[3] })) : L.grid && L.grid.zoneRects ? Object.values(L.grid.zoneRects).map(r => ({ x0: r[0], z0: r[1], x1: r[2], z1: r[3] })) : areaRects; // 一级为直角多边形:按片段铺路
 const RG0 = L.grid ? 1.5 : Math.max(0.6, (L.seamZ || L.seam || 0.5) * 1.6), RG1 = L.grid ? 40 : RG0 + 4.5;
 for (let i = 0; i < roadRects.length; i++) for (let j2 = i + 1; j2 < roadRects.length; j2++) {
   const a = roadRects[i], b = roadRects[j2];
@@ -5327,10 +5524,12 @@ Object.keys(zoneSeen).forEach(zk => {
   const ZD = L.grid && L.grid.zoneDash && L.grid.zoneDash[zk];
   if (ZD) { zoneSeen[zk].x0 = ZD[0]; zoneSeen[zk].z0 = ZD[1]; zoneSeen[zk].x1 = ZD[2]; zoneSeen[zk].z1 = ZD[3]; }
   const z = zoneSeen[zk], pad = ZD ? 0 : 1.6; // 一级虚线直接取布局层算好的框(内容 + 固定 L1_PAD)
-  window.__frames.l1.push({ k: zk, r: [z.x0 - pad, z.z0 - pad, z.x1 + pad, z.z1 + pad] });
+  const ZP = L.grid && L.grid.zonePoly && L.grid.zonePoly[zk]; // 一级 = 直角多边形
+  window.__frames.l1.push({ k: zk, r: [z.x0 - pad, z.z0 - pad, z.x1 + pad, z.z1 + pad], poly: ZP || null, pieces: (L.grid && L.grid.zonePieces && L.grid.zonePieces[zk]) || null });
   const x0 = z.x0 - pad, x1 = z.x1 + pad, z0 = z.z0 - pad, z1 = z.z1 + pad, y = 0.016;
   const g = new T.BufferGeometry();
-  g.setAttribute('position', new T.Float32BufferAttribute([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1, x0, y, z0], 3));
+  const ring = ZP ? ZP.concat([ZP[0]]).flatMap(p => [p[0], y, p[1]]) : [x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1, x0, y, z0];
+  g.setAttribute('position', new T.Float32BufferAttribute(ring, 3));
   const hex = DOMC[z.dom] || ARC.external;
   const night = lin(hex);
   const day = lin(hex).clone().lerp(lin('#0F172A'), 0.55);
@@ -5530,7 +5729,7 @@ function placeCam() {
 function contentPts() { const a = []; L.nodes.forEach(p => { if (!p) return; a.push(new V3(p.x, 0, p.z)); a.push(new V3(p.x, HY.NODE_Y + 0.95, p.z)); }); L.carriers.forEach(p => { if (!p) return; a.push(new V3(p.x, 0, p.z)); a.push(new V3(p.x, HY.NODE_Y + 0.95, p.z)); }); return a; }
 function safeRect() {
   const pn = $('#panel'), open = pn && !pn.classList.contains('hide');
-  return { l: 22, t: 58, r: open ? pn.offsetWidth + 34 : 22, b: 50 };
+  return { l: 22, t: 58, r: open ? pn.offsetWidth + 22 : 22, b: 50 };
 }
 function solveFit(az, el, pts) {
   const { right, up, back } = axes(az, el); let mnx = 1e9, mxx = -1e9, mny = 1e9, mxy = -1e9;
@@ -5669,7 +5868,7 @@ L.boards.forEach(b => {
   const c = DOMC[b.dom];
   if (b.level === 'dom') { const dl = (L.domLabel || {})[b.dom] || { x: b.x0 + 0.9, z: b.oz1 + 0.15, anchor: 'lt' }; // v3:域大标题位置由布局层按域形态给出
     addLabel('dom', esc(b.dom) + '<small>' + (DOMROLE[b.dom] ? DOMROLE[b.dom] + ' · ' : '') + cntBy(n => n['域'] === b.dom) + ' 节点 · 靶标 ' + cntBy(n => n['域'] === b.dom && n['是否靶标'] === '是') + ' · 承载 ' + carriers.filter(x => x['所属域'] === b.dom).length + '</small>', new V3(dl.x, HY.DOM1, dl.z), c, { anchor: dl.anchor, dom: b.dom }); }
-  if (b.level === 'zone') addLabel('zone', esc(b.name) + '<small>' + cntBy(n => n['域'] === b.dom && n['一级区域'] === b.name) + '</small>', new V3((b.x0 + b.x1) / 2, HY.ZONE1, (b.z0 + b.z1) / 2), (ZCOL[b.dom] && ZCOL[b.dom][b.name]) || c, { anchor: 'cb', dom: b.dom, zone: b.name });
+  if (b.level === 'zone') addLabel('zone', esc(b.name) + '<small>' + cntBy(n => n['域'] === b.dom && n['一级区域'] === b.name) + '</small>', new V3(b.lx != null ? b.lx : (b.x0 + b.x1) / 2, HY.ZONE1, b.lz != null ? b.lz : (b.z0 + b.z1) / 2), (ZCOL[b.dom] && ZCOL[b.dom][b.name]) || c, { anchor: 'cb', dom: b.dom, zone: b.name });
   if (b.level === 'sub') addLabel('sub', esc(b.name), new V3((b.x0 + b.x1) / 2, HY.SUB1, b.z0), areaColor(b.dom, b.zone, b.name), { anchor: 'cb', dom: b.dom, zone: b.zone });
   if (b.level === 'grp') addLabel('grp', esc(b.name), new V3(b.cx != null ? b.cx : (b.x0 + b.x1) / 2, HY.GRP1, b.cz != null ? b.cz : (b.z0 + b.z1) / 2), c, { anchor: 'cb', dom: b.dom, zone: b.zone });
 });
