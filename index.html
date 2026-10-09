@@ -4166,7 +4166,6 @@ const PARAMS = {
   DOMAIN_GAP: 4.50,   // 阵营A / 公共域 / 阵营B 之间的间隔
   Z_MUL: 1.50,        // 前后(纵深)方向间隔倍数:等距视角下前排设备高度会挡到后排框,实测 1.3 时前后相邻三级框屏幕重叠 44 对,1.5 时为 0
   ROUTE_CLEAR: 0.60,  // 流向线与非端点区域(一级/二级/三级)轮廓的最小距离:障碍向外膨胀这么多,线贴着轮廓平行绕行
-  MAX_SEG: 12,        // 流向线单段(不拐弯的一段)最大长度
 };
 const HY = { DOM0: 0, DOM1: 0.30, ZONE1: 0.40, SUB1: 0.47, GRP1: 0.52, NODE_Y: 0.53, LINE_Y: 0.585 };
 const DOMS = ['公共域', '阵营A「零日」', '阵营B「溢出」'];
@@ -5155,7 +5154,7 @@ function routeLinks(L, nodes, carriers, links, opt) {
       Object.entries(DOMBOX).forEach(([d, r]) => { if (d !== S.dom && d !== E.dom) ob.push(ex(r, CL)); }); // 跨阵营只经公共域
       devs.forEach(d => { if (d === S || d === E) return; const own = allowedKeys(L, d); let inside = false; own.forEach(k => { if (k.split('\0').length > 2 && al.has(k)) inside = true; }); if (!inside) return; const hh = d.f / 2 + ROUTE.DEV; ob.push([d.x - hh, d.z - hh, d.x + hh, d.z + hh]); });
       ROUTE.CL0 = PARAMS.ROUTE_CLEAR; for (const mf of [0.3, 0.45, 0.7, 1.5]) { path = laneRoute(S, E, ob, NEAR, USED, PARAMS, mf); if (path) break; }
-      if (path) path = mergeCol(path); OB = ob;
+      if (path) { path = simplifyPath(mergeCol(path), ob, null); OB = ob; }
     } else path = dijkstra(obs, [S.x, S.z], [E.x, E.z]);
     if (!path) { fail.push(label + ' 无可行路径'); out.push({ id: label, ok: false }); return; }
     // 端点让位:线头停在设备外沿 EDGE_PAD 处
@@ -5163,15 +5162,55 @@ function routeLinks(L, nodes, carriers, links, opt) {
     trimEnd(path, S, true); trimEnd(path, E, false);
     out.push({ id: label, ok: true, li, grp: lk['分组'], flow: lk['流向编号'], S, E, pts: path, obsN: obs.length, _ob: OB });
   });
-  if (L.spread) { // 并行偏移:不同链路在同一条线上重叠的段,整段平移 1~2 个车道(仍需满足离区域 ≥ ROUTE_CLEAR、不碰设备)
+  if (L.spread) { // 拉直无意义折弯 + 同缝并行错开(整条共线行程一起平移,避免拆出新台阶)
     const okL = out.filter(o => o.ok), h = ROUTE.LANE;
     const hit = (a, b, r) => Math.max(a[0], b[0]) > r[0] + 1e-9 && Math.min(a[0], b[0]) < r[2] - 1e-9 && Math.max(a[1], b[1]) > r[1] + 1e-9 && Math.min(a[1], b[1]) < r[3] - 1e-9;
     const ovl = (a, b, c, d) => { const h1 = Math.abs(a[1] - b[1]) < 1e-9, h2 = Math.abs(c[1] - d[1]) < 1e-9; if (h1 !== h2) return 0; const k = h1 ? 1 : 0, m = 1 - k; if (Math.abs(a[k] - c[k]) > 1e-6) return 0; return Math.min(Math.max(a[m], b[m]), Math.max(c[m], d[m])) - Math.max(Math.min(a[m], b[m]), Math.min(c[m], d[m])); };
     const others = (o, a, b) => okL.some(q => q !== o && q.pts.some((p, i) => i > 0 && ovl(a, b, q.pts[i - 1], p) > 1e-6));
-    for (let pass = 0; pass < 3; pass++) okL.forEach(o => { const P = o.pts; for (let i = 1; i + 2 < P.length; i++) { if (!others(o, P[i], P[i + 1])) continue;
-      const hz = Math.abs(P[i][1] - P[i + 1][1]) < 1e-9; for (const dl of [h, -h, 2 * h, -2 * h]) { const Q = P.map(p => p.slice()); if (hz) { Q[i][1] += dl; Q[i + 1][1] += dl; } else { Q[i][0] += dl; Q[i + 1][0] += dl; }
-        let bad = false; for (let k = i - 1; k <= i + 1 && !bad; k++) { const a = Q[k], b = Q[k + 1], len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 0.2 || len > PARAMS.MAX_SEG + 1e-6) bad = true; else if ((o._ob || []).some(r => hit(a, b, r))) bad = true; else if (others(o, a, b)) bad = true; }
-        if (!bad) { o.pts = Q; break; } } } });
+    const okSeg = (o, a, b) => { if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.2) return false; if ((o._ob || []).some(r => hit(a, b, r))) return false; if (others(o, a, b)) return false; return true; };
+    const okPts = (o, P) => { for (let i = 1; i < P.length; i++) if (!okSeg(o, P[i - 1], P[i])) return false; return true; };
+    // 找出点 i 所在的最大共线行程 [lo, hi]
+    const runOf = (P, i) => { let lo = i, hi = i; while (lo > 0 && ((Math.abs(P[lo][0] - P[lo - 1][0]) < 1e-9 && Math.abs(P[i][0] - P[lo][0]) < 1e-9) || (Math.abs(P[lo][1] - P[lo - 1][1]) < 1e-9 && Math.abs(P[i][1] - P[lo][1]) < 1e-9))) lo--; while (hi + 1 < P.length && ((Math.abs(P[hi + 1][0] - P[hi][0]) < 1e-9 && Math.abs(P[i][0] - P[hi][0]) < 1e-9) || (Math.abs(P[hi + 1][1] - P[hi][1]) < 1e-9 && Math.abs(P[i][1] - P[hi][1]) < 1e-9))) hi++; return [lo, hi]; };
+    for (let round = 0; round < 5; round++) {
+      okL.forEach(o => { o.pts = simplifyPath(o.pts, o._ob || [], (a, b) => others(o, a, b)); });
+      let moved = 0;
+      okL.forEach(o => {
+        const P = o.pts;
+        for (let i = 1; i < P.length; i++) {
+          if (!others(o, P[i - 1], P[i])) continue;
+          const [lo, hi] = runOf(P, i); // 整段共线行程
+          const hz = Math.abs(P[lo][1] - P[hi][1]) < 1e-9;
+          for (const dl of [h, -h, 2 * h, -2 * h, 3 * h, -3 * h, 4 * h, -4 * h]) {
+            const Q = P.map(p => p.slice());
+            for (let k = lo; k <= hi; k++) { if (hz) Q[k][1] += dl; else Q[k][0] += dl; }
+            const M = mergeCol(Q);
+            if (okPts(o, M)) { o.pts = M; moved++; break; }
+          }
+        }
+      });
+      if (!moved) break;
+    }
+    // 若偏移后偶发非正交段,拆成直角两段(先横后竖 / 先竖后横取不碰障碍的一种)
+    okL.forEach(o => {
+      let P = o.pts, guard = 0;
+      while (guard++ < 20) {
+        let fix = false;
+        for (let i = 1; i < P.length; i++) {
+          const a = P[i - 1], b = P[i];
+          if (Math.abs(a[0] - b[0]) < 1e-9 || Math.abs(a[1] - b[1]) < 1e-9) continue;
+          const c1 = [b[0], a[1]], c2 = [a[0], b[1]];
+          for (const c of [c1, c2]) {
+            if (okSeg(o, a, c) && okSeg(o, c, b)) { P = mergeCol(P.slice(0, i).concat([c], P.slice(i))); fix = true; break; }
+          }
+          if (fix) break;
+          // 实在不行就拉回:把 b 的错位轴改成与 a 对齐(回退偏移)
+          const b2 = Math.abs(a[0] - b[0]) < Math.abs(a[1] - b[1]) ? [a[0], b[1]] : [b[0], a[1]];
+          P = mergeCol(P.slice(0, i).concat([b2], P.slice(i + 1))); fix = true; break;
+        }
+        if (!fix) break;
+      }
+      o.pts = P;
+    });
     okL.forEach(o => { delete o._ob; });
   }
   return { links: out, fail, devs };
@@ -5183,7 +5222,7 @@ function routeLinks(L, nodes, carriers, links, opt) {
    网格 = 全局 ROUTE_LANE 步长的格点(并行车道天然相距 ROUTE_LANE)+ 起终点坐标线;
    代价 = 长度 × (离区域轮廓太远时加价) + 拐弯惩罚 + 与已布线路同车道重叠加价;
    搜索范围限在起终点外包向外 0.3×曼哈顿距离以内(绕路比上限约 1.6),找不到再逐级放宽。 */
-const ROUTE = { LANE: 0.25, TURN: 1.1, LV: 8, FAR: 0.8, SHARE: 30, DEV: 0.22, CL0: 0.6, MINRUN: 0.75, HW: 1.25, CORNER: 0.35 };
+const ROUTE = { LANE: 0.25, TURN: 3.5, LV: 8, FAR: 0.25, SHARE: 30, DEV: 0.22, CL0: 0.6, MINRUN: 0.5, HW: 1.2 };
 function regionsOf(L) {
   const g = L.grid, regs = [];
   Object.entries(g.zonePieces).forEach(([k, rs]) => rs.forEach(r => regs.push({ lv: 1, k, r })));
@@ -5215,9 +5254,9 @@ function laneRoute(S, E, obs, near, used, P, mFac) {
   // 轮廓拐角线:区域外扩 ROUTE_CLEAR 后的边所在坐标(最近的格线);在这些位置拐弯更便宜 → 折点落在轮廓台阶处
   const cX = new Uint8Array(nx), cZ = new Uint8Array(nz); near.forEach(r => { if (r[2] < X0 - 2 || r[0] > X1 + 2 || r[3] < Z0 - 2 || r[1] > Z1 + 2) return; [r[0] - ROUTE.CL0, r[2] + ROUTE.CL0].forEach(v => { const k = fi(xs, v); [k - 1, k, k + 1].forEach(q => { if (q >= 0 && q < nx && Math.abs(xs[q] - v) <= h / 2 + 1e-6) cX[q] = 1; }); }); [r[1] - ROUTE.CL0, r[3] + ROUTE.CL0].forEach(v => { const k = fi(zs, v); [k - 1, k, k + 1].forEach(q => { if (q >= 0 && q < nz && Math.abs(zs[q] - v) <= h / 2 + 1e-6) cZ[q] = 1; }); }); });
   const s0 = fi(zs, S.z) * nx + fi(xs, S.x), e0 = fi(zs, E.z) * nx + fi(xs, E.x); blk[s0] = 0; blk[e0] = 0;
-  /* A*:状态 = (格点, 来向);每个状态记下当前直线段已走长度,超过 MAX_SEG 必须拐弯,
-     拐弯前本段至少 ROUTE.MINRUN(避免 0.25 的小抖动);代价 = 逐格(长度 × 离轮廓远近系数 + 同车道重叠加价)+ 拐弯惩罚 */
-  const MS = P.MAX_SEG, NS = N * 4, dist = new Float32Array(NS).fill(Infinity), prev = new Int32Array(NS).fill(-1), run = new Float32Array(NS), closed = new Uint8Array(NS);
+  /* A*:状态 = (格点, 来向);不强制拆段。拐弯前本段至少 ROUTE.MINRUN;
+     代价 = 长度 × (离轮廓太远轻度加价) + 同车道重叠加价 + 较高拐弯惩罚(≈3.5),引导走直、不跟着轮廓台阶抖 */
+  const NS = N * 4, dist = new Float32Array(NS).fill(Infinity), prev = new Int32Array(NS).fill(-1), run = new Float32Array(NS), closed = new Uint8Array(NS);
   let hk = new Float64Array(1 << 16), hv = new Int32Array(1 << 16), hn = 0;
   const push = (k, v) => { if (hn >= hk.length) { const a = new Float64Array(hk.length * 2); a.set(hk); hk = a; const b = new Int32Array(hv.length * 2); b.set(hv); hv = b; } let i = hn++; while (i > 0) { const p = (i - 1) >> 1; if (hk[p] <= k) break; hk[i] = hk[p]; hv[i] = hv[p]; i = p; } hk[i] = k; hv[i] = v; };
   const pop = () => { const v = hv[0], k = hk[--hn], vv = hv[hn]; let i = 0; for (;;) { let c = 2 * i + 1; if (c >= hn) break; if (c + 1 < hn && hk[c + 1] < hk[c]) c++; if (hk[c] >= k) break; hk[i] = hk[c]; hv[i] = hv[c]; i = c; } hk[i] = k; hv[i] = vv; return v; };
@@ -5232,8 +5271,8 @@ function laneRoute(S, E, obs, near, used, P, mFac) {
     for (let k = 0; k < 4; k++) {
       const turn = k !== d; if (!first && (k ^ 1) === d) continue; if (!first && turn && r0 < ROUTE.MINRUN - 1e-6) continue;
       const ni = i + DX[k], nj = j + DZ[k]; if (ni < 0 || nj < 0 || ni >= nx || nj >= nz) continue; const nn = nj * nx + ni; if (blk[nn]) continue;
-      const len = k < 2 ? Math.abs(xs[ni] - xs[i]) : Math.abs(zs[nj] - zs[j]); const nrun = (turn || first) ? len : r0 + len; if (nrun > MS + 1e-6) continue;
-      let c = cd + len * (1 + FAR * Math.min(nr[nn], nr[n])) + (turn && !first ? ROUTE.TURN * (((d < 2 ? cX[i] : cZ[j])) ? ROUTE.CORNER : 1) : 0);
+      const len = k < 2 ? Math.abs(xs[ni] - xs[i]) : Math.abs(zs[nj] - zs[j]); const nrun = (turn || first) ? len : r0 + len;
+      let c = cd + len * (1 + FAR * Math.min(nr[nn], nr[n])) + (turn && !first ? ROUTE.TURN : 0);
       if (used) { const key = k < 2 ? kH(j, Math.min(i, ni)) : kV(i, Math.min(j, nj)); if (key >= 0 && (k < 2 ? uH : uV).has(key)) c += len * ROUTE.SHARE; }
       const ns = nn * 4 + k; if (!closed[ns] && c < dist[ns] - 1e-6) { dist[ns] = c; prev[ns] = st; run[ns] = nrun; push(c + H(nn), ns); }
     }
@@ -5246,6 +5285,88 @@ function laneRoute(S, E, obs, near, used, P, mFac) {
     else { const ii = fi(xs, A[0]); for (let jj = fi(zs, Math.min(A[1], B[1])); zs[jj] < Math.max(A[1], B[1]) - 1e-7; jj++) { const k = kV(ii, jj); if (k >= 0) uV.add(k); } } }
   return mergeCol(pts);
 }
+function simplifyPath(pts0, obs, clashFn) {
+  /* 反复去台阶(Z)和 U 弯,直到折线不再变化。
+     台阶:同向平行两段夹一段短偏移 → 优先整段对齐到外侧或内侧成为一条直线;
+     U 弯:反向两段夹一段短偏移 → 换成更短的一或两段。
+     合并后必须仍避开障碍膨胀带、不碰设备、不与其它链路共线重叠。 */
+  const hit = (a, b, r) => Math.max(a[0], b[0]) > r[0] + 1e-9 && Math.min(a[0], b[0]) < r[2] - 1e-9 && Math.max(a[1], b[1]) > r[1] + 1e-9 && Math.min(a[1], b[1]) < r[3] - 1e-9;
+  const ortho = (a, b) => Math.abs(a[0] - b[0]) < 1e-9 || Math.abs(a[1] - b[1]) < 1e-9;
+  const okSeg = (a, b) => { if (!ortho(a, b) || Math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-6) return false; if ((obs || []).some(r => hit(a, b, r))) return false; if (clashFn && clashFn(a, b)) return false; return true; };
+  const okPath = P => { for (let i = 1; i < P.length; i++) if (!okSeg(P[i - 1], P[i])) return false; return true; };
+  let P = mergeCol(pts0.map(p => p.slice()));
+  for (let guard = 0; guard < 40; guard++) {
+    let changed = false;
+    // ---- 去台阶 / U 弯:看四连点 A-B-C-D ----
+    for (let i = 0; i + 3 < P.length && !changed; i++) {
+      const A = P[i], B = P[i + 1], C = P[i + 2], D = P[i + 3];
+      const hx = Math.abs(A[1] - B[1]) < 1e-9 && Math.abs(C[1] - D[1]) < 1e-9 && Math.abs(B[0] - C[0]) < 1e-9;
+      const hz = Math.abs(A[0] - B[0]) < 1e-9 && Math.abs(C[0] - D[0]) < 1e-9 && Math.abs(B[1] - C[1]) < 1e-9;
+      if (!hx && !hz) continue;
+      const off = hx ? Math.abs(B[1] - C[1]) : Math.abs(B[0] - C[0]);
+      const sAB = hx ? Math.sign(B[0] - A[0]) : Math.sign(B[1] - A[1]);
+      const sCD = hx ? Math.sign(D[0] - C[0]) : Math.sign(D[1] - C[1]);
+      if (!sAB || !sCD) continue;
+      const isZ = sAB === sCD, isU = sAB === -sCD;
+      if (!isZ && !isU) continue;
+      if (off >= 3.0 && !isU) continue; // 大台阶留给其它逻辑;无意义折弯阈值 < 3
+      // 候选替换(按「段数少、总长短」排序)
+      const cands = [];
+      if (hx) {
+        // 对齐到 A 的 y: A → (Dx, Ay) → D
+        cands.push([A, [D[0], A[1]], D]);
+        // 对齐到 D 的 y: A → (Ax, Dy) → D
+        cands.push([A, [A[0], D[1]], D]);
+        // 若 A、D 同 y 直接连
+        if (Math.abs(A[1] - D[1]) < 1e-9) cands.push([A, D]);
+        // U 弯还可: A → (投影) 直接缩掉回来的段
+        if (isU) { cands.push([A, [C[0], A[1]], D]); cands.push([A, [B[0], D[1]], D]); }
+      } else {
+        cands.push([A, [A[0], D[1]], D]);
+        cands.push([A, [D[0], A[1]], D]);
+        if (Math.abs(A[0] - D[0]) < 1e-9) cands.push([A, D]);
+        if (isU) { cands.push([A, [A[0], C[1]], D]); cands.push([A, [D[0], B[1]], D]); }
+      }
+      // 去重 + 校验
+      let best = null, bestCost = 1e18;
+      cands.forEach(raw => {
+        const Q = mergeCol(raw.map(p => p.slice()));
+        if (Q.length < 2) return;
+        for (let k = 1; k < Q.length; k++) if (!okSeg(Q[k - 1], Q[k])) return;
+        // 与前后段衔接也要能走(A 前一段、D 后一段已在整条路径里,这里只替换中间)
+        let L = 0; for (let k = 1; k < Q.length; k++) L += Math.hypot(Q[k][0] - Q[k - 1][0], Q[k][1] - Q[k - 1][1]);
+        const cost = L + (Q.length - 1) * 0.01;
+        if (cost < bestCost - 1e-9) { bestCost = cost; best = Q; }
+      });
+      if (!best) continue;
+      // 替换:保留 P[0..i] + best(去掉重复 A) + P[i+3..]
+      const NP = P.slice(0, i + 1);
+      best.slice(1).forEach(p => NP.push(p));
+      P.slice(i + 4).forEach(p => NP.push(p));
+      const M = mergeCol(NP);
+      if (okPath(M) && M.length < P.length) { P = M; changed = true; }
+    }
+    // ---- 三点共线已由 mergeCol 处理;再扫一次把「极短中段」两侧同轴合并 ----
+    if (!changed) {
+      for (let i = 1; i + 1 < P.length; i++) {
+        const A = P[i - 1], B = P[i], C = P[i + 1];
+        const l = Math.hypot(B[0] - A[0], B[1] - A[1]);
+        if (l >= 0.35) continue; // 只清掉极短毛刺
+        // 试 A→C
+        if (okSeg(A, C) && ((Math.abs(A[0] - C[0]) < 1e-9) || (Math.abs(A[1] - C[1]) < 1e-9) || (Math.abs(A[0] - B[0]) < 1e-9 && Math.abs(B[1] - C[1]) < 1e-9) || (Math.abs(A[1] - B[1]) < 1e-9 && Math.abs(B[0] - C[0]) < 1e-9))) {
+          // 若 A→C 是横或竖,直接删 B
+          if (Math.abs(A[0] - C[0]) < 1e-9 || Math.abs(A[1] - C[1]) < 1e-9) {
+            const M = mergeCol(P.slice(0, i).concat(P.slice(i + 1)));
+            if (okPath(M)) { P = M; changed = true; break; }
+          }
+        }
+      }
+    }
+    if (!changed) break;
+  }
+  return P;
+}
+
 function mergeCol(p0) { const p = []; p0.forEach(q => { if (p.length >= 2) { const a = p[p.length - 2], b = p[p.length - 1]; if ((Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(b[0] - q[0]) < 1e-9) || (Math.abs(a[1] - b[1]) < 1e-9 && Math.abs(b[1] - q[1]) < 1e-9)) { p[p.length - 1] = q; return; } } if (!p.length || Math.hypot(q[0] - p[p.length - 1][0], q[1] - p[p.length - 1][1]) > 1e-9) p.push(q); }); return p; }
 function dijkstraGrid(obs, s, e, step) {
   const q = v => Math.round(v / step);
