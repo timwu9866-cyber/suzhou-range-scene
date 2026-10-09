@@ -5265,7 +5265,7 @@ for (let i = 0; i < XU.length - 1; i++) for (let j = 0; j < ZU.length - 1; j++) 
 let areaMeshN = 0;
 Object.keys(byHex).forEach(hex => {
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(byHex[hex], 3));
-  const m = new T.MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.18, depthWrite: false, blending: T.NormalBlending, side: T.DoubleSide });
+  const m = new T.MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.09, depthWrite: false, blending: T.NormalBlending, side: T.DoubleSide });
   const mesh = new T.Mesh(g, m); mesh.renderOrder = 2; mesh.frustumCulled = false; gBoards.add(mesh); areaMats.push(m); areaMeshN++;
 });
 window.__frames = { l1: [], l2: [] };
@@ -5345,7 +5345,7 @@ areaRects.forEach(b => {
   const x0 = b.x0, x1 = b.x1, z0 = b.z0, z1 = b.z1, y = 0.028;
   const pos = [x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z0, x1, y, z1, x0, y, z1];
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
-  const fill = new T.Mesh(g, new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.1, depthWrite: false, blending: T.NormalBlending, side: T.DoubleSide }));
+  const fill = new T.Mesh(g, new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.022, depthWrite: false, blending: T.NormalBlending, side: T.DoubleSide }));
   fill.renderOrder = 2; gBoards.add(fill);
   const lp = [x0, 0.034, z0, x1, 0.034, z0, x1, 0.034, z1, x0, 0.034, z1, x0, 0.034, z0];
   const lg = new T.BufferGeometry(); lg.setAttribute('position', new T.Float32BufferAttribute(lp, 3));
@@ -5649,7 +5649,7 @@ function applyState() {
   const dayOn = document.body.classList.contains('day');
   grpMark.forEach(m => {
     const on = !!(sel && !sel.car && m.dom === sel.dom && m.zone === sel.zone && m.sub === sel.sub && m.name === sel.grp);
-    m.fill.material.opacity = on ? 0.2 : 0.045;
+    m.fill.material.opacity = on ? 0.2 : 0.022;
     m.line.material.opacity = on ? 1 : (dayOn ? 0.9 : 0.85);
     m.line.material.color.copy(on ? lin(DOMC[m.dom]) : (dayOn ? m.day : m.dim));
     if (on) window.__grpOn = m.dom + '/' + m.name;
@@ -5784,7 +5784,7 @@ function applyTheme(day) {
     groundGrid.material.blending = day ? T.NormalBlending : T.AdditiveBlending;
     groundGrid.material.needsUpdate = true;
   }
-  areaMats.forEach(m => { m.opacity = day ? 0.09 : 0.18; });
+  areaMats.forEach(m => { m.opacity = day ? 0.045 : 0.09; });
   subFills.forEach(m => { m.opacity = day ? 0.04 : 0.07; });
   zoneDash.forEach(m => { m.color.copy(day ? m.userData.day : m.userData.night); m.opacity = day ? 0.95 : 0.88; });
   subEdges.forEach(m => { m.color.copy(day ? m.userData.day : m.userData.night); m.opacity = day ? 0.8 : 0.62; });
