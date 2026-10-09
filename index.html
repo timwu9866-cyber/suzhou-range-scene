@@ -48,9 +48,9 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
 .lbl-zone small{margin-left:5px;color:var(--muted);font-family:var(--mono);font-weight:400;font-size:11.5px}
 .lbl-sub{font-size:15px;font-weight:700;letter-spacing:.4px;opacity:1;text-shadow:0 1px 3px #000;margin-bottom:2px}
 .lbl-grp{font-size:11px;font-weight:400;color:var(--muted);opacity:.78;text-shadow:0 1px 3px #000}
-.lbl-node{font-size:11px;line-height:15px;text-shadow:0 0 3px #000,0 0 6px #000,0 0 2px #000;opacity:.9}
+.lbl-node{font-size:10px;line-height:13px;text-shadow:0 0 3px #000,0 0 6px #000,0 0 2px #000;opacity:.9}
 .lbl-node.t{font-weight:700;opacity:1}.lbl-node.t::before{content:'◆';font-size:8px;margin-right:2px;vertical-align:1px}
-.lbl-car{font-size:10px;font-family:var(--mono);text-shadow:0 0 3px #000}
+.lbl-car{font-size:9.5px;line-height:13px;font-family:var(--mono);text-shadow:0 0 3px #000,0 0 6px #000;opacity:.92}.lbl-car em{font-style:normal;font-family:var(--sans,inherit);font-size:9px;margin-left:3px;opacity:.78}
 #title{position:absolute;left:8px;top:6px;padding:3px 8px;border-radius:var(--r-btn);background:rgba(15,23,42,.8);border:1px solid var(--line);pointer-events:none;z-index:2}
 #title b{font-size:20px;color:var(--ink)}#title span{color:var(--dim);font-size:13px;margin-left:8px}
 #legend{position:absolute;right:348px;top:9px;display:flex;gap:12px;padding:4px 10px;border-radius:var(--r-btn);background:rgba(15,23,42,.86);border:1px solid var(--line);font-size:12px;color:var(--muted);pointer-events:none;z-index:2}#legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
@@ -4613,7 +4613,7 @@ function layout(nodes, carriers, opt) {
     const du = disperse / 100;
     const seam = 0.40 + du * 2.68; // 三级矩形左右缝: 0≈0.40, 28≈1.15, 100≈3.08
     const seamZ = seam * 1.3; // 前后(纵深)缝再大 1.3 倍: 28≈1.50
-    const PITCH = 1.606 + du * 0.682; // 组内节点间距(+10%): 0≈1.61, 28≈1.80, 100≈2.29
+    const PITCH = 1.797; // 组内节点间距固定 1.80;分散度滑块只放大各级间隔,不改节点间距
     const TN = opt.tune || {};
     const GAPU = TN.GAPU || 5.9, GAPV = TN.GAPV || 3.5, PGU = TN.PGU || 1.3, PGV = TN.PGV || 1.4; // 公共域组间再放宽,保持三域每节点面积接近
     function toWorldUV(u, v) { return [ca * u - (sa / se) * v, -sa * u - (ca / se) * v]; }
@@ -4636,7 +4636,7 @@ function layout(nodes, carriers, opt) {
     blobs.forEach(g => {
       const n = g.members.length;
       const hk = (g.dom || '') + '|' + (g.car ? 'car|' + (g.zone || 'edge') : g.name) + '|' + (g.sub || '');
-      const bias = [1.15, 1.0, 0.88, 1.25][hash('排|' + hk) % 4]; 
+      const bias = 1.15; // 不再按名称哈希改朝向
       const cols = squareCols(n, bias >= 1 ? 'wide' : 'tall');
       const rows = Math.ceil(n / cols);
       const px = [0], pz = [0];
@@ -4683,307 +4683,189 @@ function layout(nodes, carriers, opt) {
       z.items.forEach(g => { g.zone = host.name; host.items.push(g); host.n += g.members.length; });
       z.items = [];
     });
-    // 二级子区内的三级组收成世界坐标直角网格,整块进货架,避免和别的子区交错
+    /* ---------- 网格排版:三级组 → 二级套框 → 一级区域 → 阵营,逐层按行列对齐,同行等高、行宽补齐 ---------- */
     const PADN = 1.05, PADZ = 1.25; // 节点到三级矩形边:左右 1.05,前后 1.25
-    function gridSub(list) {
-      const ordered = list.slice().sort((a, b) => (hash(a.k) - hash(b.k)) || (a.name < b.name ? -1 : 1));
-      const n = ordered.length;
-      function slackOf(cols) {
-        const rows = Math.ceil(n / cols);
-        const colW = Array(cols).fill(0), rowH = Array(rows).fill(0);
-        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; colW[c] = Math.max(colW[c], g.w + 2 * PADN); rowH[r] = Math.max(rowH[r], g.h + 2 * PADZ); });
-        let side = 0;
-        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; side = Math.max(side, Math.min(colW[c] - (g.w + 2 * PADN), rowH[r] - (g.h + 2 * PADZ))); });
-        return side;
+    const G2X = (TN.G2X || 2.45) + seam, G2Z = (TN.G2Z || 2.9) + seamZ; // 二级套框之间(含外扩 0.75 + 角标 0.55 两侧)
+    const G1X = (TN.G1X || 4.05) + seam, G1Z = (TN.G1Z || 4.3) + seamZ; // 一级区域之间(一级虚线各外扩 1.6)
+    const SEAMC = (TN.SEAMC || 5.35) + seam; // 阵营 / 公共域之间
+    const nOf = it => it.n;
+    // 落位时按实际格子尺寸重新挑选不超出格子、填充率最高的方案(仍是规整行列,只是列数/行划分不同)
+    function adapt(vars, cur, W, H) {
+      let bi = cur, bf = -1;
+      vars.forEach((v, i) => { if (v.w > W + 1e-6 || v.h > H + 1e-6) return; const f = (v.w * v.h) / (W * H) - (v.sc || 0) * 0.02; if (f > bf + 1e-9) { bf = f; bi = i; } });
+      return bi;
+    }
+    function cellBox(g) { // 三级组或承载块:节点网格 + 内边距,拉伸时节点居中不拉开
+      let lx0 = 1e9, lx1 = -1e9, lz0 = 1e9, lz1 = -1e9; g.local.forEach(p => { lx0 = Math.min(lx0, p[0]); lx1 = Math.max(lx1, p[0]); lz0 = Math.min(lz0, p[1]); lz1 = Math.max(lz1, p[1]); });
+      return { kind: g.car ? 'car' : 'grp', g, n: g.members.length, w0: g.w + 2 * PADN, h0: g.h + 2 * PADZ,
+        place(x0, z0, W, H) { g.x = x0 + W / 2 - (lx0 + lx1) / 2; g.z = z0 + H / 2 - (lz0 + lz1) / 2; g.cell = [x0, z0, x0 + W, z0 + H]; } };
+    }
+    const lg2 = x => { const l = Math.log(Math.max(1e-9, x)); return l * l * (1 + (TN.LP || 0) * l * l); };
+    const PEN = (W, H, w0, h0) => (Math.max(0, w0 - W) + Math.max(0, h0 - H)) * 400;
+    function subGrid(name, list, key) { // 二级:三级组按行列,同列等宽左对齐,同行等高顶对齐,末行最后一格跨列补齐;拉伸按列宽/行高等比
+      const cells = list.map(cellBox).sort((a, b) => b.n - a.n || b.h0 - a.h0 || (a.g.name < b.g.name ? -1 : 1));
+      const k = cells.length, opts = [];
+      const nm = (a, b) => (a.g.name < b.g.name ? -1 : 1);
+      const orders = [cells, cells.slice().sort((a, b) => b.h0 - a.h0 || b.w0 - a.w0 || nm(a, b)), cells.slice().sort((a, b) => b.w0 - a.w0 || b.h0 - a.h0 || nm(a, b))];
+      const seenO = new Set();
+      orders.forEach(cs => { const sig = cs.map(c => c.g.name).join('|'); if (seenO.has(sig)) return; seenO.add(sig);
+      for (let C = 1; C <= k; C++) {
+        const R = Math.ceil(k / C); if (R / C > 3 || C / R > 4) continue;
+        const cw = Array(C).fill(0), rh = Array(R).fill(0), lastM = k % C;
+        cs.forEach((c, i) => { const r = (i / C) | 0, cc = i % C; rh[r] = Math.max(rh[r], c.h0); if (!(lastM && r === R - 1 && cc === lastM - 1)) cw[cc] = Math.max(cw[cc], c.w0); });
+        if (lastM) { let span = 0; for (let c2 = lastM - 1; c2 < C; c2++) span += cw[c2] + (c2 > lastM - 1 ? seam : 0); const lc = cs[k - 1]; if (lc.w0 > span) cw[C - 1] += lc.w0 - span; }
+        const W = cw.reduce((s, v) => s + v, 0) + (C - 1) * seam, H = rh.reduce((s, v) => s + v, 0) + (R - 1) * seamZ;
+        opts.push({ C, R, cw, rh, w: W, h: H, cs });
+      } });
+      if (!opts.length) { const C = k, cw = cells.map(c => c.w0), rh = [Math.max(...cells.map(c => c.h0))]; opts.push({ C, R: 1, cw, rh, w: cw.reduce((s, v) => s + v, 0) + (C - 1) * seam, h: rh[0], cs: cells }); }
+      function geo(o, x0, z0, W, H) { // 列宽/行高按自然尺寸等比放大
+        const C = o.C, R = o.R, sw = o.w - (C - 1) * seam, sh = o.h - (R - 1) * seamZ;
+        const sx = (W - (C - 1) * seam) / sw, sy = (H - (R - 1) * seamZ) / sh;
+        const cw = o.cw.map(v => v * sx), rh = o.rh.map(v => v * sy);
+        const xs = [x0]; for (let i = 1; i < C; i++) xs.push(xs[i - 1] + cw[i - 1] + seam);
+        const zs = [z0]; for (let i = 1; i < R; i++) zs.push(zs[i - 1] + rh[i - 1] + seamZ);
+        const lastM = k % C;
+        return o.cs.map((c, i) => { const r = (i / C) | 0, cc = i % C; let w = cw[cc]; if (lastM && r === R - 1 && cc === lastM - 1) w = x0 + W - xs[cc]; if (cc === C - 1) w = x0 + W - xs[cc]; return [xs[cc], zs[r], w, r === R - 1 ? z0 + H - zs[r] : rh[r], r]; });
       }
-      let cols = 1, bestSc = 1e9;
-      for (let c = 1; c <= n; c++) { const side = slackOf(c), rows = Math.ceil(n / c); const sc = side * 4 + Math.abs(c - rows); if (sc < bestSc) { bestSc = sc; cols = c; } }
-      const rows = Math.ceil(n / cols);
-      if (slackOf(cols) <= 0.4) {
-        const colW = Array(cols).fill(0), rowH = Array(rows).fill(0);
-        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; colW[c] = Math.max(colW[c], g.w + 2 * PADN); rowH[r] = Math.max(rowH[r], g.h + 2 * PADZ); });
-        const x0s = [], z0s = []; let xx = 0, zz = 0;
-        for (let c = 0; c < cols; c++) { x0s[c] = xx; xx += colW[c] + (c + 1 < cols ? seam : 0); }
-        for (let r = 0; r < rows; r++) { z0s[r] = zz; zz += rowH[r] + (r + 1 < rows ? seamZ : 0); }
-        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; g.gx = x0s[c] + PADN + g.w / 2; g.gz = z0s[r] + PADZ + g.h / 2; });
-      } else {
-        let zz = 0;
-        for (let r = 0; r < rows; r++) {
-          const rw = ordered.slice(r * cols, Math.min(n, (r + 1) * cols));
-          const rh = rw.reduce((m, g) => Math.max(m, g.h + 2 * PADZ), 0);
-          let xx = 0;
-          rw.forEach((g, c) => { g.gx = xx + PADN + g.w / 2; g.gz = zz + PADZ + g.h / 2; xx += g.w + 2 * PADN + (c + 1 < rw.length ? seam : 0); });
-          zz += rh + (r + 1 < rows ? seamZ : 0);
-        }
-      }
-      let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
-      ordered.forEach(g => { minX = Math.min(minX, g.gx - g.w / 2); maxX = Math.max(maxX, g.gx + g.w / 2); minZ = Math.min(minZ, g.gz - g.h / 2); maxZ = Math.max(maxZ, g.gz + g.h / 2); });
-      const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
-      ordered.forEach(g => { g.dx = g.gx - cx; g.dz = g.gz - cz; });
-      const W = Math.max(0.2, maxX - minX), H = Math.max(0.2, maxZ - minZ);
-      return { su: ca * W + sa * H, sv: se * (sa * W + ca * H) };
+      const memo = new Map();
+      const S = { kind: 'sub', name, key, cells, nc: cells.length, n: cells.reduce((s, c) => s + c.n, 0), A: Math.min(...opts.map(o => o.w * o.h)), rows: [],
+        minW: Math.min(...opts.map(o => o.w)), minH: Math.min(...opts.map(o => o.h)),
+        minWAt(h) { let m = 1e9; opts.forEach(o => { if (o.h <= h + 1e-6) m = Math.min(m, o.w); }); return m < 1e9 ? m : 1e4; },
+        idealW(h) { let b = null; opts.forEach(o => { if (o.h <= h + 1e-6 && (!b || o.h > b.h + 1e-6 || (Math.abs(o.h - b.h) < 1e-6 && o.w < b.w))) b = o; }); return b ? b.w * Math.sqrt(h / b.h) : this.minW; },
+        ev(W, H) { const mk = W.toFixed(2) + ',' + H.toFixed(2); if (memo.has(mk)) return memo.get(mk);
+          let best = null; opts.forEach((o, oi) => { let pen = PEN(W, H, o.w, o.h), cost = 0; if (best && best.pen < pen) return;
+            geo(o, 0, 0, W, H).forEach((q, i) => { const c = o.cs[i]; cost += lg2(q[2] * q[3] / (c.w0 * c.h0)); pen += PEN(q[2], q[3], c.w0, c.h0); });
+            if (!best || pen + cost < best.pen + best.cost) best = { cost, pen, oi }; });
+          memo.set(mk, best); return best; },
+        place(x0, z0, W, H) { const o = opts[this.ev(W, H).oi]; this.R = o.R; this.rows = Array.from({ length: o.R }, () => []);
+          geo(o, x0, z0, W, H).forEach((q, i) => { o.cs[i].place(q[0], q[1], q[2], q[3]); this.rows[q[4]].push(o.cs[i].g); });
+          this.rect = [x0, z0, x0 + W, z0 + H]; } };
+      S.evq = S.ev;
+      return S;
     }
-    let subN = 0;
-    zones.forEach(z => {
-      const buckets = {}, rest = [];
-      if (z.dom.indexOf('公共')>=0) return;
-      z.items.forEach(g => { if (g.car) rest.push(g); else (buckets[g.sub] = buckets[g.sub] || []).push(g); });
-      const next = rest.slice();
-      Object.keys(buckets).forEach(name => {
-        const list = buckets[name];
-        if (list.length < 2) { next.push(list[0]); return; }
-        const dim = gridSub(list);
-        subN++;
-        next.push({ k: z.dom + '\0' + z.name + '\0' + name, dom: z.dom, zone: z.name, sub: name, name: name, su: dim.su, sv: dim.sv, kids: list, isSub: true, car: false, members: [] });
-      });
-      z.items = next;
-    });
-    BR.snapped = subN;
-    function finish(rows, gapU, gapV) {
-      rows = rows.filter(rw => rw.items.length);
-      let h = 0; rows.forEach((rw, i) => { h += rw.h + (i ? gapV : 0); });
-      const w = rows.reduce((m, rw) => Math.max(m, rw.w), 0) || 0.5;
-      rows.forEach(rw => { rw.gapU = rw.gapU || gapU; });
-      const short = rows.reduce((m, rw) => Math.max(m, w - rw.w), 0);
-      return { rows, w, h, short, gapU, gapV };
-    }
-    function packInto(list, rowCount, gapU, gapV) {
-      const items = list.slice().sort((a, b) => (b.su - a.su) || (b.sv - a.sv) || (hash(a.k) - hash(b.k)));
-      const rows = Array.from({ length: Math.max(1, rowCount) }, () => ({ items: [], w: 0, h: 0 }));
-      items.forEach(it => {
-        let bi = 0, bs = 1e9;
-        rows.forEach((rw, i) => {
-          const w = rw.w + it.su + (rw.items.length ? gapU : 0);
-          const hm = rw.items.length ? Math.abs(it.sv - rw.h) * 0.65 : 0;
-          const sc = w + hm;
-          if (sc < bs) { bs = sc; bi = i; }
-        });
-        const rw = rows[bi];
-        rw.items.push({ it, su: it.su, sv: it.sv });
-        rw.h = Math.max(rw.h, it.sv);
-        rw.w += it.su + (rw.items.length > 1 ? gapU : 0);
-      });
-      rows.forEach(rw => {
-        rw.items.sort((a, b) => (b.su - a.su) || (hash(a.it.k) - hash(b.it.k)));
-        let w = 0; rw.items.forEach((box, i) => { w += box.su + (i ? gapU : 0); }); rw.w = w;
-      });
-      return finish(rows, gapU, gapV);
-    }
-    function align(lay, cap) {
-      lay.rows.forEach(rw => {
-        const gaps = rw.items.length - 1;
-        if (gaps <= 0) return;
-        const add = Math.min(Math.max(lay.w - rw.w, 0) / gaps, Math.max(0, cap - (rw.gapU || lay.gapU)));
-        if (add > 0.02) { rw.gapU = (rw.gapU || lay.gapU) + add; rw.w += add * gaps; }
-      });
-      lay.w = lay.rows.reduce((m, rw) => Math.max(m, rw.w), 0.5);
-      lay.short = lay.rows.reduce((m, rw) => Math.max(m, lay.w - rw.w), 0);
-    }
-    function widen(lay, target, cap) {
-      lay.rows.forEach(rw => {
-        const gaps = rw.items.length - 1;
-        if (gaps <= 0) return;
-        const add = Math.min(Math.max(target - rw.w, 0) / gaps, Math.max(0, cap - (rw.gapU || lay.gapU)));
-        if (add > 0.02) { rw.gapU = (rw.gapU || lay.gapU) + add; rw.w += add * gaps; }
-      });
-      lay.w = lay.rows.reduce((m, rw) => Math.max(m, rw.w), 0.5);
-      lay.short = lay.rows.reduce((m, rw) => Math.max(m, lay.w - rw.w), 0);
-    }
-    function bestPack(list, gapU, gapV, shape, cap) {
-      let best = null;
-      const n = list.length;
-      for (let rc = 1; rc <= Math.min(n, 5); rc++) {
-        const lay = packInto(list, rc, gapU, gapV);
-        align(lay, cap == null ? gapU + 0.35 : cap);
-        const aspect = lay.w / Math.max(lay.h, 0.2);
-        const sc = Math.abs(Math.log(aspect / shape)) + (lay.short / Math.max(lay.w, 1)) * 3;
-        if (!best || sc < best.sc) best = Object.assign(lay, { sc });
-      }
-      return best;
-    }
-    function stamp(lay, u0, vTop) {
-      let v = vTop;
-      lay.rows.forEach(rw => {
-        let u = u0;
-        const gapU = rw.gapU || lay.gapU;
-        rw.items.forEach(box => {
-          box.it.uc = u + box.su / 2; box.it.vc = v - box.sv / 2;
-          u += box.su + gapU;
-        });
-        v -= rw.h + lay.gapV;
-      });
-    }
-    const live = zones.filter(z => z.items.length);
-    live.forEach(z => {
-      const pub = z.dom.indexOf('公共') >= 0;
-      const shape = (pub ? 2.4 : 1.15) * (0.92 + (hash('宽|' + z.k) % 5) * 0.04);
-      z.lay = bestPack(z.items, GAPU, GAPV, shape);
-      z.su = z.lay.w; z.sv = z.lay.h;
-      const base = hash('群落|' + z.name) % 4;
-      const off = z.dom.indexOf('溢出') >= 0 ? (base + 2) % 4 : pub ? (base + 1) % 4 : base;
-      z.grow = ['blob', 'strip', 'tall', 'arc'][off];
-    });
-    const AZN = live.filter(z => z.dom.indexOf('零日') >= 0);
-    const BZN = live.filter(z => z.dom.indexOf('溢出') >= 0);
-    const PZN = live.filter(z => z.dom.indexOf('公共') >= 0);
-    const pGroups = PZN.reduce((a, z) => a.concat(z.items), []);
-    function fillShort(lay, cap) {
-      lay.rows.forEach(rw => {
-        const need = lay.w - rw.w;
-        if (need < 0.8) return;
-        const boxes = rw.items.filter(b => b.it && b.it.lay);
-        if (!boxes.length) return;
-        const share = need / boxes.length;
-        boxes.forEach(box => {
-          widen(box.it.lay, box.it.lay.w + share, (box.it.lay.gapU || GAPU) + cap);
-          box.it.su = box.it.lay.w; box.it.sv = box.it.lay.h;
-          box.su = box.it.su; box.sv = box.it.sv;
-        });
-        let w = 0; rw.items.forEach((box, i) => { w += box.su + (i ? (rw.gapU || lay.gapU) : 0); });
-        rw.w = w; rw.h = rw.items.reduce((m, b) => Math.max(m, b.sv), 0);
-      });
-      lay.w = lay.rows.reduce((m, rw) => Math.max(m, rw.w), 0.5);
-      lay.h = 0; lay.rows.forEach((rw, i) => { lay.h += rw.h + (i ? lay.gapV : 0); });
-      lay.short = lay.rows.reduce((m, rw) => Math.max(m, lay.w - rw.w), 0);
-    }
-    function fillTall(lay) {
-      lay.rows.forEach(rw => {
-        rw.items.forEach(box => {
-          const z = box.it;
-          if (!z.lay || z.sv >= rw.h - 0.3 || z.lay.rows.length < 2) return;
-          const base = z.lay.rows.reduce((sum, r) => sum + r.h, 0);
-          const g = (rw.h - base) / (z.lay.rows.length - 1);
-          if (g < z.lay.gapV || g - z.lay.gapV > 3.4) return;
-          z.lay.gapV = g;
-          z.lay.rows.forEach(r => { r.gapV = g; });
-          z.lay.h = base + g * (z.lay.rows.length - 1);
-          z.sv = z.lay.h; box.sv = z.sv;
-        });
-      });
-    }
-    const ZGAPU = TN.ZGAPU || 7.2, ZGAPV = TN.ZGAPV || 4.7, SEAM = TN.SEAM || 5.5, ATGT = TN.ATGT || 1.5;
-    let best = null;
-    const raMax = Math.min(AZN.length, 6), rbMax = Math.min(BZN.length, 6), rpMax = Math.min(pGroups.length, 10);
-    for (let ra = 2; ra <= raMax; ra++) {
-      for (let rb = 2; rb <= rbMax; rb++) {
-        for (let rp = 2; rp <= rpMax; rp++) {
-          const aLay = packInto(AZN, ra, ZGAPU, ZGAPV); align(aLay, ZGAPU + 0.35);
-          const bLay = packInto(BZN, rb, ZGAPU, ZGAPV); align(bLay, ZGAPU + 0.35);
-          const gLay = packInto(pGroups, rp, GAPU * PGU, GAPV * PGV); align(gLay, GAPU * PGU + 0.35);
-          const width = aLay.w + SEAM + gLay.w + SEAM + bLay.w;
-          const height = Math.max(aLay.h, bLay.h, gLay.h);
-          const aspect = width / Math.max(height, 0.2);
-          function gapNeed(lay, target) {
-            const n = lay.rows.length;
-            if (n < 2) return 99;
-            const base = lay.rows.reduce((sum, r) => sum + r.h, 0);
-            return (target - base) / (n - 1) - lay.gapV;
+    function leafBox(c) { c.A = c.w0 * c.h0; c.minW = c.w0; c.minH = c.h0; c.minWAt = h => h >= c.h0 - 1e-6 ? c.w0 : 1e4; c.idealW = h => c.w0 * Math.sqrt(Math.max(1, h / c.h0)); c.ev = c.evq = (W, H) => ({ cost: lg2(W * H / c.A), pen: PEN(W, H, c.w0, c.h0) }); return c; }
+    /* 行排版(面积等比):元素按面积从大到小排,连续切成若干行;行高取「面积等比」与「该行放得下所需最小高度」的较大者,
+       行内宽度 ∝ 面积但不小于各元素在该行高下的最小宽度(注水法),末格补齐。同行等高顶对齐,左右/上下间隔一致 */
+    function rowsBox(kind, name, items, gx, gz, opt) {
+      opt = opt || {};
+      const hKey = it => { const w = Math.sqrt(it.A * 1.3); let h = 1e9; for (let k = 0; k < 40 && h > 1e8; k++) { const ww = w * (1 + k * 0.1); if (it.minWAt) { /* 找最小高度使最小宽度 ≤ ww */ let lo = it.minH, hi = 400; if (it.minWAt(hi) > ww) continue; for (let q = 0; q < 14; q++) { const m = (lo + hi) / 2; if (it.minWAt(m) <= ww) hi = m; else lo = m; } h = hi; } } return h; };
+      const SK = TN.SK || 0;
+      if (SK === 1) items.forEach(it => { it._hk = hKey(it); });
+      items = items.slice().sort((a, b) => (SK === 1 ? b._hk - a._hk : SK === 2 ? b.minH - a.minH : b.A - a.A) || b.A - a.A || ((a.name || '') < (b.name || '') ? -1 : 1));
+      const n = items.length, sumA = items.reduce((s, it) => s + it.A, 0), RMAX = Math.min(n, opt.rmax || 6);
+      const pre = [0]; items.forEach(it => pre.push(pre[pre.length - 1] + it.A));
+      const memo = new Map();
+      function rowGeo(i, j, W, h) {
+        const its = items.slice(i, j), Wr = W - (j - i - 1) * gx, fixed = its.map(() => false), mw = its.map(it => it.minWAt(h)), iw = its.map(it => it.idealW(h)); let ws = null;
+        for (let it2 = 0; it2 <= its.length; it2++) { let rest = Wr, SA = 0; its.forEach((it, t) => { if (fixed[t]) rest -= mw[t]; else SA += iw[t]; });
+          ws = its.map((it, t) => fixed[t] ? mw[t] : (SA > 0 ? rest * iw[t] / SA : 0)); let ch = false; its.forEach((it, t) => { if (!fixed[t] && ws[t] < mw[t]) { fixed[t] = true; ch = true; } }); if (!ch) break; }
+        const tot = ws.reduce((a, b) => a + b, 0); if (tot > Wr + 1e-6) ws = ws.map(v => v * Wr / tot);
+        return ws; }
+      function needH(i, j, W) { // 该行在宽度 W 下放得下的最小行高
+        let lo = 0; for (let t = i; t < j; t++) lo = Math.max(lo, items[t].minH);
+        const fits = h => { let w = (j - i - 1) * gx; for (let t = i; t < j; t++) w += items[t].minWAt(h); return w <= W + 1e-6; };
+        if (fits(lo)) return lo; let hi = lo * 2 + 10, k = 0; while (!fits(hi) && k < 8) { hi *= 2; k++; } if (!fits(hi)) return 1e4;
+        for (let it = 0; it < 18; it++) { const m = (lo + hi) / 2; if (fits(m)) hi = m; else lo = m; } return hi; }
+      function rowHeights(cuts, R, W, Hr) {
+        const need = [], SAr = []; for (let r = 0; r < R; r++) { need.push(needH(cuts[r], cuts[r + 1], W)); SAr.push(pre[cuts[r + 1]] - pre[cuts[r]]); }
+        const fx = need.map(() => false); let hs = null;
+        for (let q = 0; q <= R; q++) { let rest = Hr, SA = 0; SAr.forEach((a, r) => { if (fx[r]) rest -= need[r]; else SA += a; }); hs = SAr.map((a, r) => fx[r] ? need[r] : rest * a / SA); let ch = false; hs.forEach((h, r) => { if (!fx[r] && h < need[r]) { fx[r] = true; ch = true; } }); if (!ch) break; }
+        return hs; }
+      const B = { kind, name, items, n: items.reduce((s, it) => s + it.n, 0), nc: items.reduce((s, it) => s + (it.nc || 1), 0), A: sumA, gx, gz, avoid: null,
+        minW: Math.max(...items.map(it => it.minW)), minH: Math.max(...items.map(it => it.minH)),
+        ev(W, H) { const mk = W.toFixed(2) + ',' + H.toFixed(2) + (this.avoid || ''); if (memo.has(mk)) return memo.get(mk);
+          let best = null;
+          for (let R = 1; R <= RMAX; R++) {
+            const Hr = H - (R - 1) * gz; if (Hr <= 0) break;
+            let rpen = 0; if (this.avoid && GROW(R, n) === this.avoid) rpen += (TN.AVP || 1.5) * this.nc;
+            const dp = Array.from({ length: R + 1 }, () => new Array(n + 1).fill(null)); dp[0][0] = { cost: 0, pen: 0, cuts: [0], hs: 0 };
+            for (let r = 1; r <= R; r++) for (let j = r; j <= n - (R - r); j++) { let bb = null;
+              for (let i = r - 1; i < j; i++) { const p = dp[r - 1][i]; if (!p) continue;
+                const nh = needH(i, j, W); const h = Math.max(nh, Hr * (pre[j] - pre[i]) / sumA); const ws = rowGeo(i, j, W, h); const hs = p.hs + nh;
+                let c = p.cost, pn = p.pen; for (let t = 0; t < ws.length; t++) { const e = items[i + t].evq(ws[t], h); c += e.cost; pn += e.pen; }
+                if (r === R) pn += Math.max(0, hs - Hr) * 400;
+                if (!bb || pn + c < bb.pen + bb.cost) bb = { cost: c, pen: pn, cuts: p.cuts.concat([j]), hs }; }
+              dp[r][j] = bb; }
+            const d = dp[R][n]; if (d && (!best || d.cost + d.pen + rpen < best.cost + best.pen)) best = { cost: d.cost + rpen, pen: d.pen, cuts: d.cuts, R };
           }
-          const extra = Math.max(gapNeed(aLay, height), gapNeed(bLay, height), gapNeed(gLay, height));
-          if (extra > 10) continue;
-          const dens = [aLay.w / 350, bLay.w / 350, gLay.w / 100];
-          const ar = Math.max.apply(null, dens) / Math.min.apply(null, dens);
-          const short = Math.max(aLay.short, bLay.short);
-          if (ar > (TN.ARMAX || 1.2) || aspect < 1.2 || aspect > 1.95 || extra > 12.6) continue;
-          const sc = Math.abs(aspect - ATGT) * 8 + extra * 0.4 + short * 0.15 + (ra === rb ? 2.2 : 0) + Math.abs(aLay.w - bLay.w) * 0.05 + ar;
-          if (!best || sc < best.sc) best = { aLay, bLay, gLay, aspect, sc, ra, rb, rp, width, height };
-        }
-      }
+          if (!best) best = { cost: 0, pen: 1e7, cuts: [0, n], R: 1 };
+          memo.set(mk, best); return best; },
+        front: null,
+        buildFront() { // 一级区域的可行尺寸前沿:若干宽度下放得下的最小高度
+          if (this.front) return this.front; const f = [];
+          const wLo = this.minW, wHi = items.reduce((s, it) => s + it.minW, 0) + (n - 1) * gx + 1;
+          for (let k = 0; k < 16; k++) { const W = wLo * Math.pow(wHi / wLo, k / 15); let lo = this.minH, hi = 600;
+            if (this.ev(W, hi).pen > 1e-3) continue;
+            for (let it = 0; it < 16; it++) { const m = (lo + hi) / 2; if (this.ev(W, m).pen <= 1e-3) hi = m; else lo = m; }
+            f.push([W, hi]); }
+          this.front = f; this.A = Math.min(...f.map(p => p[0] * p[1])); return f; },
+        minWAt(h) { let m = 1e9; this.buildFront().forEach(p => { if (p[1] <= h + 1e-6) m = Math.min(m, p[0]); }); return m < 1e9 ? m : 1e4; },
+        idealW(h) { const A = this.A || sumA; return Math.max(this.minWAt(h), A / Math.max(1e-6, h)); },
+        evq(W, H) { if (TN.EX) { const e = this.ev(W, H); return { cost: e.cost, pen: e.pen }; } const f = this.buildFront(); let pen = 1e9; let asp = 1e9; f.forEach(p => { pen = Math.min(pen, (Math.max(0, p[0] - W) + Math.max(0, p[1] - H)) * 400); if (p[0] <= W + 1e-6 && p[1] <= H + 1e-6) asp = Math.min(asp, lg2((W / p[0]) / (H / p[1]))); }); return { cost: this.nc * (lg2(W * H / this.A) * 0.6 + (asp < 1e8 ? asp * (TN.AQ == null ? 1.5 : TN.AQ) : 0)), pen }; },
+        place(x0, z0, W, H) {
+          const b = this.ev(W, H); this.R = b.R; this.rowsOut = []; const Hr = H - (b.R - 1) * gz; let z = z0;
+          const hsA = rowHeights(b.cuts, b.R, W, Hr);
+          for (let r = 0; r < b.R; r++) { const i = b.cuts[r], j = b.cuts[r + 1]; const h = r === b.R - 1 ? z0 + H - z : hsA[r]; const ws = rowGeo(i, j, W, h); let x = x0; const row = [];
+            for (let t = i; t < j; t++) { const w = t === j - 1 ? x0 + W - x : ws[t - i]; items[t].place(x, z, w, h); row.push(items[t]); x += w + gx; }
+            this.rowsOut.push(row); z += h + gz; }
+          this.rect = [x0, z0, x0 + W, z0 + H]; } };
+      return B;
     }
-    if (!best) throw new Error('没有可用的左右对抗布局');
-    function inflate(lay, target) {
-      const n = lay.rows.length;
-      if (n < 2) return;
-      const base = lay.rows.reduce((sum, r) => sum + r.h, 0);
-      const need = (target - base) / (n - 1);
-      const g = Math.max(lay.gapV, Math.min(lay.gapV + 2.2, need));
-      lay.gapV = g;
-      lay.rows.forEach(rw => { rw.gapV = g; });
-      lay.h = base + g * (n - 1);
+    const GROW = (R, n) => n <= 1 ? 'blob' : R === 1 ? 'strip' : R === n ? 'tall' : R === 2 ? 'blob' : 'arc';
+    const zoneBoxes = {};
+    zones.filter(z => z.items.length).forEach(z => {
+      const bySub = {}, carsIn = [];
+      z.items.forEach(g => { if (g.car) carsIn.push(g); else (bySub[g.sub] = bySub[g.sub] || []).push(g); });
+      const items = Object.keys(bySub).sort().map(sn => subGrid(sn, bySub[sn], z.dom + '\0' + z.name + '\0' + sn));
+      carsIn.forEach(g => { const c = leafBox(cellBox(g)); c.name = '承载'; items.push(c); });
+      const zb = rowsBox('zone', z.name, items, G2X, G2Z, { rmax: z.dom.indexOf('公共') >= 0 ? 8 : 5 });
+      zb.z = z; zoneBoxes[z.k] = zb;
+    });
+    Object.values(zoneBoxes).forEach(zb => zb.buildFront());
+    BR.snapped = Object.values(zoneBoxes).reduce((s, zb) => s + zb.items.filter(it => it.kind === 'sub').length, 0);
+    const campZones = dom => Object.values(zoneBoxes).filter(zb => zb.z.dom === dom);
+    const DA = '阵营A「零日」', DB = '阵营B「溢出」', DP = '公共域';
+    const cA = rowsBox('camp', DA, campZones(DA), G1X, G1Z, { rmax: 4, inflate: 1.0 });
+    const cB = rowsBox('camp', DB, campZones(DB), G1X, G1Z, { rmax: 4, inflate: 1.0 });
+    const pZB = campZones(DP)[0];
+    const STR = TN.STR || 1.0, TGT = TN.ASP || 1.75;
+    function topFor(H, s) { // 三列(A | 公共 | B)同高,宽度 ∝ 面积 × 拉伸系数
+      const PWF = TN.PWF || 1.0; const wA = cA.A * s / H, wP = pZB.A * s * PWF / H, wB = cB.A * s / H; return { wA, wP, wB, W: wA + wP + wB + 2 * SEAMC };
     }
-    const aLay = best.aLay, bLay = best.bLay, gLay = best.gLay;
-    fillShort(aLay, 5.6); fillShort(bLay, 5.6); fillTall(aLay); fillTall(bLay);
-    const top = Math.max(aLay.h, bLay.h, gLay.h);
-    inflate(aLay, top); inflate(bLay, top); inflate(gLay, top);
-    const pZone = PZN[0];
-    pZone.lay = gLay; pZone.su = gLay.w; pZone.sv = gLay.h;
-    PZN.slice(1).forEach(z => { z.lay = { rows: [], w: 0.5, h: 0.5, gapU: GAPU, gapV: GAPV }; z.su = 0.5; z.sv = 0.5; z.items = []; });
-    const pLay = packInto([pZone], 1, ZGAPU, ZGAPV);
-    // 公共域夹在两阵营中间,竖向各自居中,轮廓不镜像
-    stamp(aLay, 0, (top + aLay.h) / 2);
-    stamp(pLay, aLay.w + SEAM, (top + pLay.h) / 2);
-    stamp(bLay, aLay.w + SEAM + pLay.w + SEAM, (top + bLay.h) / 2);
-    function toWorld(u, v) { return [ca * u - (sa / se) * v, -sa * u - (ca / se) * v]; }
-    live.forEach(z => { stamp(z.lay, z.uc - z.su / 2, z.vc + z.sv / 2); });
-    let uMin = 1e9, uMax = -1e9, vMin = 1e9, vMax = -1e9;
-    live.forEach(z => z.items.forEach(g => { uMin = Math.min(uMin, g.uc); uMax = Math.max(uMax, g.uc); vMin = Math.min(vMin, g.vc); vMax = Math.max(vMax, g.vc); }));
-    const curA = (uMax - uMin) / Math.max(1e-6, vMax - vMin);
-    const k = Math.max(TN.KF || 0.74, Math.min(1, curA / (TN.KA || 1.88)));
-    if (k < 0.995) live.forEach(z => z.items.forEach(g => { g.vc = vMin + (g.vc - vMin) * k; }));
-    function placeItems() {
-      live.forEach(z => z.items.forEach(it => {
-        const w = toWorld(it.uc, it.vc);
-        if (it.isSub) it.kids.forEach(g => { g.x = w[0] + g.dx; g.z = w[1] + g.dz; });
-        else { it.x = w[0]; it.z = w[1]; }
-      }));
+    const rectAsp = (W, H) => (ca * W + sa * H) / (se * (sa * W + ca * H) + 1.5);
+    function solve(s) { let lo = 5, hi = 2000; for (let it = 0; it < 50; it++) { const m = (lo + hi) / 2; if (rectAsp(topFor(m, s).W, m) > TGT) lo = m; else hi = m; } return hi; }
+    let pickS = null;
+    const sList = TN.STR ? [STR] : [1.15, 1.25, 1.35, 1.45, 1.55, 1.7, 1.85, 2.0, 2.2, 2.45, 2.7, 3.0];
+    let growA = {};
+    for (const s of sList) {
+      const H = solve(s), t = topFor(H, s);
+      cB.items.forEach(zb => { zb.avoid = null; });
+      const cAe = cA.ev(t.wA, H), cPe = pZB.ev(t.wP, H);
+      // 阵营B 同名一级区域避开阵营A 的群落形状
+      cA.place(0, 0, t.wA, H); growA = {}; cA.items.forEach(zb => { growA[zb.name] = GROW(zb.R, zb.items.length); });
+      cB.items.forEach(zb => { zb.avoid = growA[zb.name] || null; });
+      const cBe = cB.ev(t.wB, H);
+      const cost = cAe.cost + cAe.pen + cPe.cost + cPe.pen + cBe.cost + cBe.pen;
+      if (!pickS || cost < pickS.cost - 1e-6) pickS = { s, H, t, cost };
+      if (pickS.cost < 1e4 && cost > pickS.cost * 1.3) break;
     }
-
-    placeItems();
-    (function plugHole() {
-      const subs = {};
-      groups.forEach(g => { if (g.car || g.dx == null) return; const bk = g.dom + '\0' + g.zone + '\0' + g.sub; (subs[bk] = subs[bk] || []).push(g); });
-      const keys = Object.keys(subs);
-      function nodesOf() { const pts = []; blobs.forEach(g => !g.car && (g.local || []).forEach(lp => pts.push([g.x + lp[0], g.z + lp[1]]))); return pts; }
-      function holeOf(pts) {
-        const uv = pts.map(p => [ca * p[0] - sa * p[1], -se * (sa * p[0] + ca * p[1])]);
-        let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
-        uv.forEach(p => { u0 = Math.min(u0, p[0]); u1 = Math.max(u1, p[0]); v0 = Math.min(v0, p[1]); v1 = Math.max(v1, p[1]); });
-        const cs = 1.2, nu = Math.ceil((u1 - u0) / cs), nv = Math.ceil((v1 - v0) / cs);
-        const occ = Array.from({ length: nv }, () => Array(nu).fill(0));
-        uv.forEach(p => { occ[Math.min(nv - 1, (p[1] - v0) / cs | 0)][Math.min(nu - 1, (p[0] - u0) / cs | 0)] = 1; });
-        let best = 0, bi = 0, bj = 0;
-        for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
-          if (occ[j][i]) continue;
-          let s = 1;
-          while (j + s < nv && i + s < nu) { let bad = false; for (let t = 0; t <= s; t++) if (occ[j + s][i + t] || occ[j + t][i + s]) bad = true; if (bad) break; s++; }
-          if (s > best) { best = s; bi = i; bj = j; }
-        }
-        return { frac: best * cs / Math.max(1e-6, u1 - u0), cu: u0 + (bi + best / 2) * cs, cv: v0 + (bj + best / 2) * cs };
-      }
-      function farEnough(list, dx, dz) {
-        const mine = [];
-        list.forEach(g => (g.local || []).forEach(lp => mine.push([g.x + dx + lp[0], g.z + dz + lp[1]])));
-        for (let gi = 0; gi < blobs.length; gi++) {
-          const og = blobs[gi]; if (list.indexOf(og) >= 0) continue;
-          const loc = og.local || [];
-          for (let a = 0; a < loc.length; a++) {
-            const x = og.x + loc[a][0], z = og.z + loc[a][1];
-            for (let b = 0; b < mine.length; b++) { const ddx = mine[b][0] - x, ddz = mine[b][1] - z; if (Math.abs(ddx) < FX && Math.abs(ddz) < FZ) return false; }
-          }
-        }
-        return true;
-      }
-      const FX = TN.FX || (2 * PADN + seam), FZ = TN.FZ || (2 * PADZ + seamZ);
-      for (let step = 0; step < (TN.PHS || 48); step++) {
-        const h = holeOf(nodesOf());
-        if (h.frac <= 0.112) break;
-        let bestK = null, bestD = 1e9;
-        keys.forEach(k => {
-          const list = subs[k]; let cx = 0, cz = 0; list.forEach(g => { cx += g.x; cz += g.z; }); cx /= list.length; cz /= list.length;
-          const u = ca * cx - sa * cz, v = -se * (sa * cx + ca * cz), d = Math.hypot(u - h.cu, v - h.cv);
-          if (d < bestD) { bestD = d; bestK = k; }
-        });
-        if (!bestK) break;
-        const list = subs[bestK];
-        let cx = 0, cz = 0; list.forEach(g => { cx += g.x; cz += g.z; }); cx /= list.length; cz /= list.length;
-        const u = ca * cx - sa * cz, v = -se * (sa * cx + ca * cz);
-        let du = h.cu - u, dv = h.cv - v; const len = Math.hypot(du, dv) || 1; du = du / len * 1.5; dv = dv / len * 1.5;
-        const dx = ca * du - (sa / se) * dv, dz = -sa * du - (ca / se) * dv;
-        if (!farEnough(list, dx, dz)) { keys.splice(keys.indexOf(bestK), 1); if (!keys.length) break; continue; }
-        list.forEach(g => { g.x += dx; g.z += dz; }); BR.plugMoves = (BR.plugMoves || 0) + 1;
-      }
-      BR.plugEnd = +holeOf(nodesOf()).frac.toFixed(3); BR.plugKeys = keys.length;
-    })();
+    { const { H, t } = pickS; cB.items.forEach(zb => { zb.avoid = null; });
+      cA.place(0, 0, t.wA, H); growA = {}; cA.items.forEach(zb => { growA[zb.name] = GROW(zb.R, zb.items.length); });
+      cB.items.forEach(zb => { zb.avoid = growA[zb.name] || null; });
+      pZB.place(t.wA + SEAMC, 0, t.wP, H); cB.place(t.wA + SEAMC + t.wP + SEAMC, 0, t.wB, H); }
+    BR.gridEx = [pickS.s, +pickS.H.toFixed(2), +pickS.cost.toFixed(1)];
+    const l3Rows = [], l2Rows = [], zoneRects = {}, subRects = {};
+    Object.values(zoneBoxes).forEach(zb => {
+      zoneRects[zb.z.dom + '\0' + zb.z.name] = zb.rect;
+      zb.rowsOut.forEach(r => { const subs = r.filter(it => it.kind === 'sub'); if (subs.length) l2Rows.push(subs.map(s => s.key)); });
+      zb.items.filter(it => it.kind === 'sub').forEach(s => { subRects[s.key] = s.rect; s.rows.forEach(r => l3Rows.push(r.map(g => g.dom + '\0' + g.zone + '\0' + g.sub + '\0' + g.name))); });
+      zb.z.gridRC = zb.rowsOut.map(r => r.length); zb.z.grow = 'rows' + zb.z.gridRC.join('-'); // 群落形状 = 行列组合
+    });
+    const rowNames = cb => cb.rowsOut.map(r => r.map(z => z.name));
+    BR.grid = { l3Rows, l2Rows, zoneRects, subRects, campRows: { A: rowNames(cA), B: rowNames(cB), P: rowNames(pZB) }, zoneRC: Object.fromEntries(Object.values(zoneBoxes).map(zb => [zb.z.dom.slice(0, 3) + '/' + zb.z.name, zb.z.gridRC])) };
+    BR.hole = 0;
+    BR.def = []; blobs.forEach(g => { if (!g.cell) return; const W = g.cell[2] - g.cell[0], H = g.cell[3] - g.cell[1], w0 = g.w + 2 * PADN, h0 = g.h + 2 * PADZ; if (W * H / (w0 * h0) > (TN.DEFS || 1e9) || W < w0 - 0.01 || H < h0 - 0.01) BR.def.push([g.dom.slice(0, 3), g.zone, g.sub, g.name, +W.toFixed(1), +w0.toFixed(1), +H.toFixed(1), +h0.toFixed(1)]); });
+    BR.dbg = Object.values(zoneBoxes).map(zb => { const r = zb.rect; return [zb.z.dom.slice(0, 3) + '/' + zb.name, +(r[2] - r[0]).toFixed(1), +(r[3] - r[1]).toFixed(1), zb.items.map(it => { const q = it.rect || it.g.cell; return (it.name || '').slice(0, 4) + ':' + (q[2] - q[0]).toFixed(0) + 'x' + (q[3] - q[1]).toFixed(0) + '/' + Math.sqrt(it.A).toFixed(0); }).join(' ')]; });
 
     const gBoard = {}, sBoard = {}, zBoard = {}, dBoard = {}, cBoard = {};
     boards.forEach(b => {
@@ -5024,7 +4906,7 @@ function layout(nodes, carriers, opt) {
       if (!g.car && pts.length) {
         const gb = gBoard[g.dom + '\0' + g.zone + '\0' + g.sub + '\0' + g.name];
         if (gb) {
-          gb.rings = [outline(pts)];
+          gb.rings = [g.cell ? [[g.cell[0], g.cell[1]], [g.cell[2], g.cell[1]], [g.cell[2], g.cell[3]], [g.cell[0], g.cell[3]]] : outline(pts)];
           let cx = 0, cz = 0; pts.forEach(p => { cx += p[0]; cz += p[1]; }); gb.cx = cx / pts.length; gb.cz = cz / pts.length; gb.rad = 0.4;
           pts.forEach(p => { gb.rad = Math.max(gb.rad, Math.hypot(p[0] - gb.cx, p[1] - gb.cz)); });
           gb.rad += 0.12;
@@ -5067,7 +4949,7 @@ function layout(nodes, carriers, opt) {
   const all = []; NP.forEach((p, i) => all.push({ x: p.x, z: p.z, f: footOf(nodes[i]['3D样式代码']) })); CP.forEach((p, i) => all.push({ x: p.x, z: p.z, f: footOf(carStyle(carriers[i])) }));
   let minD = 1e9, coll = 0, nan = 0;
   for (let i = 0; i < all.length; i++) { if (!isFinite(all[i].x) || !isFinite(all[i].z)) nan++; for (let j = i + 1; j < all.length; j++) { const dx = all[i].x - all[j].x, dz = all[i].z - all[j].z; if (Math.abs(dx) > 2.4 || Math.abs(dz) > 2.4) continue; const d = Math.hypot(dx, dz); minD = Math.min(minD, d); const lim = (all[i].f + all[j].f) / 2; if (Math.abs(dx) < lim && Math.abs(dz) < lim) coll++; } }
-  const L = { U, HY, nodes: NP, carriers: CP, boards, fail, campRatio: +BR.aspect.toFixed(3), zoneRatio: 0, pubRatio: 1.7, campEff: 0, eff: 0, aspect: +BR.aspect.toFixed(3), plateFill: 0, spread: 1, disperse: BR.disperse, seam: BR.seam, pitch: BR.pitch, plug: [BR.plugMoves || 0, BR.plugEnd, BR.plugKeys], snapped: BR.snapped || 0, seamZ: BR.seamZ, padX: 1.05, padZ: 1.25, minSpacing: +minD.toFixed(3), collisions: coll, nan, tree: T, domLabel,
+  const L = { U, HY, nodes: NP, carriers: CP, boards, fail, campRatio: +BR.aspect.toFixed(3), zoneRatio: 0, pubRatio: 1.7, campEff: 0, eff: 0, aspect: +BR.aspect.toFixed(3), plateFill: 0, spread: 1, disperse: BR.disperse, seam: BR.seam, pitch: BR.pitch, grid: BR.grid, gridEx: BR.gridEx, dbg: BR.dbg, def: BR.def, snapped: BR.snapped || 0, seamZ: BR.seamZ, padX: 1.05, padZ: 1.25, minSpacing: +minD.toFixed(3), collisions: coll, nan, tree: T, domLabel,
     shape: { aspect: +BR.aspect.toFixed(3), world: { w: +BR.W.toFixed(2), h: +BR.H.toFixed(2) }, hole: +BR.hole.toFixed(3), A: { w: +bA.x1.toFixed(2), h: +(bA.z1 - bA.z0).toFixed(2), rects: 1 }, B: { w: +(bB.x1 - bB.x0).toFixed(2), h: +(bB.z1 - bB.z0).toFixed(2), depthRatio: +((bB.z1 - bB.z0) / Math.max(1, bB.x1 - bB.x0)).toFixed(2) }, P: { w: +pCamp.w.toFixed(2), h: +pCamp.h.toFixed(2) }, gapAB: BR.GAPX, arr: arrCount, zoneAspect, preset: { ia: BR.ia, ib: BR.ib, host: BR.host } } };
   L.ms = +(((typeof performance !== 'undefined' ? performance : Date).now()) - t0).toFixed(2);
   return L;
@@ -5398,19 +5280,22 @@ let bx0 = 1e9, bx1 = -1e9, bz0 = 1e9, bz1 = -1e9;
 areaRects.forEach(r => { bx0 = Math.min(bx0, r.x0); bx1 = Math.max(bx1, r.x1); bz0 = Math.min(bz0, r.z0); bz1 = Math.max(bz1, r.z1); });
 const vSeg = [], hSeg = [];
 // 路网只铺在二级子区之间的通道上(比三级缝宽),三级缝本身不铺
-const RG0 = Math.max(0.6, (L.seamZ || L.seam || 0.5) * 1.12), RG1 = RG0 + 3.6;
-for (let i = 0; i < areaRects.length; i++) for (let j2 = i + 1; j2 < areaRects.length; j2++) {
-  const a = areaRects[i], b = areaRects[j2];
+// 网格排版后:路网铺在一级区域之间的通道(含阵营/公共域缝)中线上
+const roadRects = L.grid && L.grid.zoneRects ? Object.values(L.grid.zoneRects).map(r => ({ x0: r[0], z0: r[1], x1: r[2], z1: r[3] })) : areaRects;
+const RG0 = L.grid ? 2.5 : Math.max(0.6, (L.seamZ || L.seam || 0.5) * 1.6), RG1 = L.grid ? 40 : RG0 + 4.5;
+for (let i = 0; i < roadRects.length; i++) for (let j2 = i + 1; j2 < roadRects.length; j2++) {
+  const a = roadRects[i], b = roadRects[j2];
   let gapX = 0, left = null, right = null;
   if (a.x1 <= b.x0) { gapX = b.x0 - a.x1; left = a; right = b; }
   else if (b.x1 <= a.x0) { gapX = a.x0 - b.x1; left = b; right = a; }
   const oz0 = Math.max(a.z0, b.z0), oz1 = Math.min(a.z1, b.z1);
-  if (left && gapX >= RG0 && gapX <= RG1 && oz1 - oz0 > 3.2) vSeg.push({ b: (left.x1 + right.x0) / 2, a0: oz0, a1: oz1 });
+  const clear = (x0, z0, x1, z1) => !roadRects.some(c => c !== a && c !== b && c.x0 < x1 - 0.01 && c.x1 > x0 + 0.01 && c.z0 < z1 - 0.01 && c.z1 > z0 + 0.01);
+  if (left && gapX >= RG0 && gapX <= RG1 && oz1 - oz0 > 3.2 && clear(left.x1, oz0, right.x0, oz1)) vSeg.push({ b: (left.x1 + right.x0) / 2, a0: oz0, a1: oz1 });
   let gapZ = 0, bot = null, top = null;
   if (a.z1 <= b.z0) { gapZ = b.z0 - a.z1; bot = a; top = b; }
   else if (b.z1 <= a.z0) { gapZ = a.z0 - b.z1; bot = b; top = a; }
   const ox0 = Math.max(a.x0, b.x0), ox1 = Math.min(a.x1, b.x1);
-  if (bot && gapZ >= RG0 && gapZ <= RG1 && ox1 - ox0 > 3.2) hSeg.push({ b: (bot.z1 + top.z0) / 2, a0: ox0, a1: ox1 });
+  if (bot && gapZ >= RG0 && gapZ <= RG1 && ox1 - ox0 > 3.2 && clear(ox0, bot.z1, ox1, top.z0)) hSeg.push({ b: (bot.z1 + top.z0) / 2, a0: ox0, a1: ox1 });
 }
 function mergeSeg(segs) {
   segs.sort((p, q) => p.b - q.b || p.a0 - q.a0);
@@ -5459,6 +5344,7 @@ Object.keys(byHex).forEach(hex => {
   const m = new T.MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.18, depthWrite: false, blending: T.NormalBlending, side: T.DoubleSide });
   const mesh = new T.Mesh(g, m); mesh.renderOrder = 2; mesh.frustumCulled = false; gBoards.add(mesh); areaMats.push(m); areaMeshN++;
 });
+window.__frames = { l1: [], l2: [] };
 const subSeen = {};
 areaRects.forEach(r => {
   const k = r.dom + '\0' + r.zone + '\0' + r.sub;
@@ -5469,6 +5355,7 @@ areaRects.forEach(r => {
 Object.keys(subSeen).forEach(k => {
   const s2 = subSeen[k], mrg = 0.75;
   const x0 = s2.x0 - mrg, x1 = s2.x1 + mrg, z0 = s2.z0 - mrg, z1 = s2.z1 + mrg, y = 0.006;
+  window.__frames.l2.push({ k, r: [x0 - 0.55, z0 - 0.55, x1 + 0.55, z1 + 0.55] }); // 含角标外伸 0.55
   const pos = [x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z0, x1, y, z1, x0, y, z1];
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
   const fill = new T.Mesh(g, new T.MeshBasicMaterial({ color: s2.hex, transparent: true, opacity: 0.07, depthWrite: false, blending: T.NormalBlending, side: T.DoubleSide }));
@@ -5507,7 +5394,12 @@ Object.keys(subSeen).forEach(k => {
   z.x0 = Math.min(z.x0, s2.x0); z.x1 = Math.max(z.x1, s2.x1); z.z0 = Math.min(z.z0, s2.z0); z.z1 = Math.max(z.z1, s2.z1);
 });
 Object.keys(zoneSeen).forEach(zk => {
+  const zr = L.grid && L.grid.zoneRects && L.grid.zoneRects[zk];
+  if (zr) { const z0 = zoneSeen[zk]; z0.x0 = Math.min(z0.x0, zr[0]); z0.z0 = Math.min(z0.z0, zr[1]); z0.x1 = Math.max(z0.x1, zr[2]); z0.z1 = Math.max(z0.z1, zr[3]); } // 一级虚线包住整块网格(含承载块)
+});
+Object.keys(zoneSeen).forEach(zk => {
   const z = zoneSeen[zk], pad = 1.6;
+  window.__frames.l1.push({ k: zk, r: [z.x0 - pad, z.z0 - pad, z.x1 + pad, z.z1 + pad] });
   const x0 = z.x0 - pad, x1 = z.x1 + pad, z0 = z.z0 - pad, z1 = z.z1 + pad, y = 0.016;
   const g = new T.BufferGeometry();
   g.setAttribute('position', new T.Float32BufferAttribute([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1, x0, y, z0], 3));
@@ -5839,8 +5731,9 @@ function applyState() {
 
 /* ---------- DOM 标签:域/区域/子区/节点组/承载/节点中文名(屏幕网格去重,靶标优先) ---------- */
 const LBL = []; const lblHost = $('#labels'); let labelsDirty = true;
+const NEAR_PX = (window.__TUNE && window.__TUNE.NEARPX) || 62;
 const DOMROLE = { '公共域': '互联网入口', '阵营A「零日」': '企业总部/园区', '阵营B「溢出」': '运营商机房/数据中心' };
-const LBLON = { dom: true, zone: true, sub: true, grp: true, car: false, node: true };
+const LBLON = { dom: true, zone: true, sub: true, grp: true, car: true, node: true };
 function addLabel(kind, html, wp, color, extra) { const el = document.createElement('div'); el.className = 'lbl lbl-' + kind; el.innerHTML = html; if (color) el.style.setProperty('--c', color); lblHost.appendChild(el); const o = Object.assign({ el, kind, wp, shown: false }, extra || {}); LBL.push(o); return o; }
 const cntBy = (f) => nodes.filter(f).length;
 function buildHeadLabels() {
@@ -5854,12 +5747,15 @@ L.boards.forEach(b => {
 });
 }
 buildHeadLabels();
+// 承载设备中文角色(短名),跟在设备名后面
+function carRole(t) { t = String(t || ''); if (/核心.*交换/.test(t)) return '核心交换'; if (/汇聚/.test(t)) return '汇聚交换'; if (/接入交换/.test(t)) return '接入交换'; if (/域间/.test(t)) return '域间防火墙'; if (/DMZ|边界/.test(t)) return '边界防火墙'; if (/东西向/.test(t)) return '东西向防火墙'; if (/防火墙/.test(t)) return t.replace(/区?防火墙$/, '') + '防火墙'; if (/路由/.test(t)) return '路由器'; return t; }
 devices.forEach(d => {
-  if (d.car) d.lbl = addLabel('car', esc(d.name), new V3(d.x, HY.NODE_Y + d.H + 0.08, d.z), CARC, { anchor: 'cb', dev: d });
+  if (d.car) { d.role = carRole(d.cn); d.lbl = addLabel('car', esc(d.name) + '<em>' + esc(d.role) + '</em>', new V3(d.x, HY.NODE_Y + d.H + 0.08, d.z), CARC, { anchor: 'cb', dev: d, pri: 2 }); }
   else { d.lbl = addLabel('node', esc(d.cn), new V3(d.x, HY.NODE_Y + d.H + (d.isT ? 0.42 : 0.1), d.z), d.isT ? PAL.warn : RM.CAT[d.cat].main, { anchor: 'cb', dev: d, pri: d.isT ? 3 : (d.cat === '网络设备' || d.cat === '安全设备' ? 2 : d.cat === '服务器存储' ? 1 : 0) });
     if (d.isT) d.lbl.el.classList.add('t'); }
-  const txt = d.lbl.el.textContent; d.lbl.w = [...txt].reduce((t, ch) => t + (ch.charCodeAt(0) > 255 ? 11 : 6.4), 0) + 8; d.lbl.h = 15;
+  const txt = d.lbl.el.textContent; d.lbl.w = [...txt].reduce((t, ch) => t + (ch.charCodeAt(0) > 255 ? 10 : 5.8), 0) + 6; d.lbl.h = 13;
 });
+const devLbls = LBL.filter(l => l.kind === 'node' || l.kind === 'car');
 const nodeLbls = LBL.filter(l => l.kind === 'node').sort((a, b) => b.pri - a.pri || a.dev.j - b.dev.j);
 let lblStat = { shown: 0 };
 function updateLabels() {
@@ -5869,6 +5765,25 @@ function updateLabels() {
   const hit = (x0, y0, x1, y1) => { for (let gx = Math.floor(x0 / CELL); gx <= Math.floor(x1 / CELL); gx++) for (let gy = Math.floor(y0 / CELL); gy <= Math.floor(y1 / CELL); gy++) { const a = occ.get(gx * 4096 + gy); if (a) for (const r of a) if (x0 < r[2] && x1 > r[0] && y0 < r[3] && y1 > r[1]) return true; } return false; };
   const place = (l, show, x, y) => { if (show) { const tr = l.anchor === 'lt' ? '' : l.anchor === 'rt' ? ' translate(-100%,0)' : l.anchor === 'lb' ? ' translate(0,-100%)' : ' translate(-50%,-100%)'; l.el.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)' + tr; } if (show !== l.shown) { l.el.style.display = show ? 'block' : 'none'; l.shown = show; } };
   const zoomed = C.ppu > C.fitPPU * 1.35;
+  // 近景:相邻设备间距 ≥ NEAR_PX 像素时,视野内全部设备名常显(不去重);组/子区名让位
+  const near = (L.pitch || 1.8) * C.ppu >= NEAR_PX;
+  if (near) {
+    const sel0 = S.sel != null ? devices[S.sel] : null;
+    devLbls.forEach(l => { const d = l.dev;
+      const on = d.car ? (S.showCar && LBLON.car && d.k > 0.2) : (LBLON.node && (d.k >= 0.5 || d === sel0));
+      if (!on) { place(l, false); return; }
+      const s = screenOf(l.wp.x, l.wp.y, l.wp.z); const x0 = s[0] - l.w / 2, y0 = s[1] - l.h, x1 = s[0] + l.w / 2, y1 = s[1];
+      if (x1 < 0 || x0 > W || y1 < 0 || y0 > H) { place(l, false); return; }
+      occupy(x0, y0, x1, y1); place(l, true, s[0], s[1]); if (!d.car) shown++; });
+    LBL.filter(l => l.kind === 'dom' || l.kind === 'zone').forEach(l => placeHeadNear(l));
+    LBL.filter(l => l.kind === 'sub').forEach(l => placeHeadNear(l));
+    LBL.filter(l => l.kind === 'grp').forEach(l => placeHeadNear(l));
+    lblStat = { shown, total: nodeLbls.length, grp: LBL.filter(l => l.kind === 'grp' && l.shown).length, near: true };
+    return;
+  }
+  function placeHeadNear(l) { let on = LBLON[l.kind]; if (l.dom && S.dom && l.dom !== S.dom) on = on && l.kind === 'dom'; if (!on) { place(l, false); return; }
+    const s = screenOf(l.wp.x, l.wp.y, l.wp.z); const w = l.kind === 'dom' ? 168 : l.kind === 'zone' ? 92 : l.kind === 'sub' ? 72 : Math.max(44, (l.el.textContent || '').length * 11); const h = l.kind === 'dom' ? 36 : l.kind === 'zone' ? 22 : 14;
+    const x0 = s[0] - w / 2, y0 = s[1] - h; if (s[0] < -20 || s[0] > W - 10 || s[1] < 36 || s[1] > H - 8 || hit(x0, y0, x0 + w, y0 + h)) { place(l, false); return; } occupy(x0, y0, x0 + w, y0 + h); place(l, true, s[0], s[1]); }
   const heads = LBL.filter(l => l.kind !== 'node').sort((a, b) => (['dom', 'zone', 'sub', 'grp', 'car'].indexOf(a.kind) - ['dom', 'zone', 'sub', 'grp', 'car'].indexOf(b.kind)));
   const placeHead = (l, reserve) => {
     let on = LBLON[l.kind]; if (l.kind === 'car') on = on && S.showCar && l.dev.k > 0.2; if (l.dom && S.dom && l.dom !== S.dom) on = on && l.kind === 'dom';
