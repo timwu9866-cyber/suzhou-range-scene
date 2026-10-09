@@ -5755,9 +5755,25 @@ class PolyCurve extends T.Curve {
   constructor(pts) { super(); this.p = pts; this.c = [0]; for (let i = 1; i < pts.length; i++) this.c.push(this.c[i - 1] + pts[i].distanceTo(pts[i - 1])); this.len = this.c[this.c.length - 1]; this.arcLengthDivisions = Math.max(200, pts.length * 2); }
   getPoint(t, out) { out = out || new V3(); const s = Math.min(Math.max(t, 0), 1) * this.len; let lo = 0, hi = this.c.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (this.c[m] <= s) lo = m; else hi = m; } const a = this.p[lo], b = this.p[hi], seg = this.c[hi] - this.c[lo] || 1; return out.copy(a).lerp(b, (s - this.c[lo]) / seg); }
   getPointAt(u, out) { return this.getPoint(u, out); }
-  getTangentAt(u, out) { const a = this.getPoint(Math.max(0, u - 0.002)), b = this.getPoint(Math.min(1, u + 0.002)); return (out || new V3()).copy(b).sub(a).normalize(); }
+  // 切向 = 所在直段的方向(只会是横或竖);恰在拐角上时取后一段
+  getTangentAt(u, out) { const s = Math.min(Math.max(u, 0), 1) * this.len; let k = 1; while (k < this.c.length - 1 && this.c[k] <= s + 1e-9) k++; return (out || new V3()).copy(this.p[k]).sub(this.p[k - 1]).normalize(); }
   getTangent(u, out) { return this.getTangentAt(u, out); }
 }
+/* 管道按直段拼接:管道的每一圈截面正好落在折线的顶点上(只有顶点,没有中间采样),
+   所以中心线就是原始的横竖折线,拐角是尖的 90°(截面取斜接面),不会被均匀采样切成倒角/斜段 */
+class VertCurve extends T.Curve {
+  constructor(pts) { super(); this.p = pts; this.n = pts.length - 1; }
+  getPoint(t, out) { const f = Math.min(Math.max(t, 0), 1) * this.n, i = Math.min(this.n - 1, Math.floor(f + 1e-9)), w = f - i; return (out || new V3()).copy(this.p[i]).lerp(this.p[i + 1], Math.abs(w) < 1e-9 ? 0 : w); }
+  getPointAt(u, out) { return this.getPoint(u, out); }
+  getTangentAt(u, out) { const f = Math.min(Math.max(u, 0), 1) * this.n, i = Math.round(f), v = out || new V3();
+    if (Math.abs(f - i) < 1e-6) { if (i === 0) return v.copy(this.p[1]).sub(this.p[0]).normalize(); if (i === this.n) return v.copy(this.p[i]).sub(this.p[i - 1]).normalize();
+      const a = new V3().copy(this.p[i]).sub(this.p[i - 1]).normalize(), b = new V3().copy(this.p[i + 1]).sub(this.p[i]).normalize(); return v.copy(a).add(b).normalize(); }
+    const k = Math.min(this.n - 1, Math.floor(f)); return v.copy(this.p[k + 1]).sub(this.p[k]).normalize(); }
+  getTangent(u, out) { return this.getTangentAt(u, out); }
+}
+function straightTube(p3, r0, cum, len) { const g = new T.TubeGeometry(new VertCurve(p3), p3.length - 1, r0, 5, false); const uv = g.attributes.uv, R = 5;
+  for (let i = 0; i < p3.length; i++) for (let j = 0; j <= R; j++) uv.setX(i * (R + 1) + j, cum[i] / len); uv.needsUpdate = true; // 纹理 x = 真实弧长比例(流动虚线不变形)
+  return g; }
 const tubeVS = 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}';
 const tubeFS = 'uniform vec3 uLane,uHot;uniform float uLen,uTime,uSpeed,uDash,uGap,uAlpha,uLaneA,uHotA;varying vec2 vUv;void main(){float d=vUv.x*uLen-uTime*uSpeed;float per=uDash+uGap;float m=mod(d,per);float on=smoothstep(0.,.06,m)*(1.-smoothstep(uDash-.08,uDash,m));vec3 c=mix(uLane,uHot,on);float a=mix(uLaneA,uHotA,on)*uAlpha;gl_FragColor=vec4(c,a);}';
 const gLinks = new T.Group(); scene.add(gLinks);
@@ -5773,7 +5789,7 @@ R.links.forEach((r, k) => {
   const cv = new PolyCurve(p3);
   const rMain = grp === 'mgmt' ? 0.05 : grp === 'cross' ? 0.07 : 0.065; // 约为上一版 0.108/0.151 的 45%
   const mk = (r0) => { const m = new T.ShaderMaterial({ uniforms: { uLane: { value: col.clone() }, uHot: { value: col.clone() }, uLen: { value: cv.len }, uTime: U.uTime, uSpeed: { value: grp === 'cross' ? 2.2 : 1.6 }, uDash: { value: 1.05 }, uGap: { value: 1.55 }, uAlpha: { value: 0.9 }, uLaneA: { value: 0.42 }, uHotA: { value: 1 } }, vertexShader: tubeVS, fragmentShader: tubeFS, transparent: true, depthWrite: false, blending: T.AdditiveBlending });
-    const me = new T.Mesh(new T.TubeGeometry(cv, Math.min(1200, p3.length + 40), r0, 5, false), m); me.renderOrder = 10; gLinks.add(me); return me; };
+    const me = new T.Mesh(straightTube(p3, r0, cv.c, cv.len), m); me.renderOrder = 10; gLinks.add(me); return me; };
   const main = mk(rMain), halo = mk(rMain * 1.65);
   const extra = [];
   const amat = new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, blending: T.AdditiveBlending, depthWrite: false });
@@ -6264,7 +6280,8 @@ function auditLinks() {
   LK.forEach(l => {
     const own = new Set(); L.boards.forEach(b => { if ((b.dom === l.S.dom && (b.name === l.S.zone || b.name === l.S.sub)) || (b.dom === l.E.dom && (b.name === l.E.zone || b.name === l.E.sub))) own.add(b); });
     let c = 0;
-    l.pts2.forEach(([x, z]) => { const r = l.rMain;
+    const dense = []; l.pts2.forEach((q, i) => { if (!i) { dense.push(q); return; } const a = l.pts2[i - 1], n = Math.max(1, Math.ceil(Math.hypot(q[0] - a[0], q[1] - a[1]) / 0.1)); for (let k = 1; k <= n; k++) dense.push([a[0] + (q[0] - a[0]) * k / n, a[1] + (q[1] - a[1]) * k / n]); }); // 沿线每 0.1 取样(不只看折点)
+    dense.forEach(([x, z]) => { const r = l.rMain;
       devBox.forEach(b => { if (b.d === l.S || b.d === l.E) return; if (x + r > b.x0 && x - r < b.x1 && z + r > b.z0 && z - r < b.z1 && l.y + r > b.y0 && l.y - r < b.y1) c++; });
       L.boards.forEach(b => { if (own.has(b) || !(b.level === 'zone' || b.level === 'sub')) return; if (x > b.ox0 && x < b.ox1 && z > b.oz0 && z < b.oz1) { if (b.level === 'zone') overZone++; else if (L.boards.some(z2 => z2.level === 'zone' && own.has(z2) && z2.dom === b.dom && z2.name === b.zone)) overSub++; } });
     });
