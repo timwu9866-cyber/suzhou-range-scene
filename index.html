@@ -4165,6 +4165,8 @@ const PARAMS = {
   L1_GAP: 2.40,       // 一级虚线框之间的间隔(左右;前后再乘 Z_MUL)
   DOMAIN_GAP: 4.50,   // 阵营A / 公共域 / 阵营B 之间的间隔
   Z_MUL: 1.50,        // 前后(纵深)方向间隔倍数:等距视角下前排设备高度会挡到后排框,实测 1.3 时前后相邻三级框屏幕重叠 44 对,1.5 时为 0
+  ROUTE_CLEAR: 0.60,  // 流向线与非端点区域(一级/二级/三级)轮廓的最小距离:障碍向外膨胀这么多,线贴着轮廓平行绕行
+  MAX_SEG: 12,        // 流向线单段(不拐弯的一段)最大长度
 };
 const HY = { DOM0: 0, DOM1: 0.30, ZONE1: 0.40, SUB1: 0.47, GRP1: 0.52, NODE_Y: 0.53, LINE_Y: 0.585 };
 const DOMS = ['公共域', '阵营A「零日」', '阵营B「溢出」'];
@@ -4855,7 +4857,7 @@ function layout(nodes, carriers, opt) {
     /* 可用区:u ∈ [-U/2, U/2](屏幕横向)、d ∈ [-D/2, D/2](纵深),U = 画布宽高比 × 屏幕高度;
        A │ 公共 │ B 用世界坐标竖线 x = X1、X2 分开(间隔 DOMAIN_GAP),公共域是正中的一条竖带 */
     let nFillG = 0;
-    const PF = TN.PF || 1; // 公共域竖带只占纵深的 PF(两端留给两阵营补满上下角)
+    const PF = TN.PF || 1; // 公共域竖带占纵深的比例(默认整列,上下居中)
     const Rof = (D, xa, xb, f) => { const U = TGT * (se * D + 1.5), h = D * (f || 1) / 2; return { ua: -U / 2, ub: U / 2, d0: -h, d1: h, xa, xb }; };
     /* 轮廓线上浮(skyline):条带只决定横向顺序和位置,每个二级框/承载块再各自向远处(z 变小)上浮,
        直到碰到上方的框(同区间隔 L2_GAP×Z_MUL、跨区 2·L1_PAD + L1_GAP×Z_MUL)或画面上沿/右沿;
@@ -5107,6 +5109,8 @@ function routeLinks(L, nodes, carriers, links, opt) {
     B.forEach(x => { if (x.dom !== d.dom) return; if (x.level === 'zone' && x.name === d.zone) ks.add(x.key); if (x.level === 'sub' && d.sub && x.name === d.sub && x.zone === d.zone) ks.add(x.key); });
     return ks;
   }
+  const REG = L.spread ? regionsOf(L) : [], NEAR = REG.map(R => R.r), USED = { H: new Set(), V: new Set() }, DOMBOX = {};
+  if (L.spread) Object.entries(L.grid.zoneRects).forEach(([k, r]) => { const d = k.split('\0')[0], b = DOMBOX[d] || (DOMBOX[d] = [1e9, 1e9, -1e9, -1e9]); b[0] = Math.min(b[0], r[0]); b[1] = Math.min(b[1], r[1]); b[2] = Math.max(b[2], r[2]); b[3] = Math.max(b[3], r[3]); });
   const out = [];
   links.forEach((lk, li) => {
     const label = lk['链路编号'];
@@ -5144,16 +5148,105 @@ function routeLinks(L, nodes, carriers, links, opt) {
       if (parentSub && openSub(parentSub)) obs.push([b.ox0 - CLR.grp, b.oz0 - CLR.grp, b.ox1 + CLR.grp, b.oz1 + CLR.grp, 'grp']);
     });
     devs.forEach(d => { if (d === S || d === E) return; if (!L.spread && !open.has(d.board.key)) return; const h = d.f / 2 + (L.spread ? 0.2 : CLR.dev); obs.push([d.x - h, d.z - h, d.x + h, d.z + h, 'dev']); });
-    const path = L.spread ? dijkstraGrid(obs, [S.x, S.z], [E.x, E.z], 0.72) : dijkstra(obs, [S.x, S.z], [E.x, E.z]);
+    let path, OB = null;
+    if (L.spread) { // v3.2 通道寻路
+      const al = new Set([...allowedKeys(L, S), ...allowedKeys(L, E)]), CL = PARAMS.ROUTE_CLEAR, ex = (r, e) => [r[0] - e, r[1] - e, r[2] + e, r[3] + e];
+      const ob = []; REG.forEach(R => { if (!al.has(R.k)) ob.push(ex(R.r, CL)); });
+      Object.entries(DOMBOX).forEach(([d, r]) => { if (d !== S.dom && d !== E.dom) ob.push(ex(r, CL)); }); // 跨阵营只经公共域
+      devs.forEach(d => { if (d === S || d === E) return; const own = allowedKeys(L, d); let inside = false; own.forEach(k => { if (k.split('\0').length > 2 && al.has(k)) inside = true; }); if (!inside) return; const hh = d.f / 2 + ROUTE.DEV; ob.push([d.x - hh, d.z - hh, d.x + hh, d.z + hh]); });
+      ROUTE.CL0 = PARAMS.ROUTE_CLEAR; for (const mf of [0.3, 0.45, 0.7, 1.5]) { path = laneRoute(S, E, ob, NEAR, USED, PARAMS, mf); if (path) break; }
+      if (path) path = mergeCol(path); OB = ob;
+    } else path = dijkstra(obs, [S.x, S.z], [E.x, E.z]);
     if (!path) { fail.push(label + ' 无可行路径'); out.push({ id: label, ok: false }); return; }
     // 端点让位:线头停在设备外沿 EDGE_PAD 处
     const trimEnd = (p, d, atStart) => { const a = atStart ? p[0] : p[p.length - 1], b = atStart ? p[1] : p[p.length - 2]; const L2 = Math.hypot(b[0] - a[0], b[1] - a[1]), pad = d.f / 2 + 0.16; if (L2 > pad + 0.05) { const t = pad / L2; const q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; if (atStart) p[0] = q; else p[p.length - 1] = q; } };
     trimEnd(path, S, true); trimEnd(path, E, false);
-    out.push({ id: label, ok: true, li, grp: lk['分组'], flow: lk['流向编号'], S, E, pts: path, obsN: obs.length });
+    out.push({ id: label, ok: true, li, grp: lk['分组'], flow: lk['流向编号'], S, E, pts: path, obsN: obs.length, _ob: OB });
   });
+  if (L.spread) { // 并行偏移:不同链路在同一条线上重叠的段,整段平移 1~2 个车道(仍需满足离区域 ≥ ROUTE_CLEAR、不碰设备)
+    const okL = out.filter(o => o.ok), h = ROUTE.LANE;
+    const hit = (a, b, r) => Math.max(a[0], b[0]) > r[0] + 1e-9 && Math.min(a[0], b[0]) < r[2] - 1e-9 && Math.max(a[1], b[1]) > r[1] + 1e-9 && Math.min(a[1], b[1]) < r[3] - 1e-9;
+    const ovl = (a, b, c, d) => { const h1 = Math.abs(a[1] - b[1]) < 1e-9, h2 = Math.abs(c[1] - d[1]) < 1e-9; if (h1 !== h2) return 0; const k = h1 ? 1 : 0, m = 1 - k; if (Math.abs(a[k] - c[k]) > 1e-6) return 0; return Math.min(Math.max(a[m], b[m]), Math.max(c[m], d[m])) - Math.max(Math.min(a[m], b[m]), Math.min(c[m], d[m])); };
+    const others = (o, a, b) => okL.some(q => q !== o && q.pts.some((p, i) => i > 0 && ovl(a, b, q.pts[i - 1], p) > 1e-6));
+    for (let pass = 0; pass < 3; pass++) okL.forEach(o => { const P = o.pts; for (let i = 1; i + 2 < P.length; i++) { if (!others(o, P[i], P[i + 1])) continue;
+      const hz = Math.abs(P[i][1] - P[i + 1][1]) < 1e-9; for (const dl of [h, -h, 2 * h, -2 * h]) { const Q = P.map(p => p.slice()); if (hz) { Q[i][1] += dl; Q[i + 1][1] += dl; } else { Q[i][0] += dl; Q[i + 1][0] += dl; }
+        let bad = false; for (let k = i - 1; k <= i + 1 && !bad; k++) { const a = Q[k], b = Q[k + 1], len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 0.2 || len > PARAMS.MAX_SEG + 1e-6) bad = true; else if ((o._ob || []).some(r => hit(a, b, r))) bad = true; else if (others(o, a, b)) bad = true; }
+        if (!bad) { o.pts = Q; break; } } } });
+    okL.forEach(o => { delete o._ob; });
+  }
   return { links: out, fail, devs };
 }
 
+/* ---------- 流向路由(v3.2):在各级区域之间的空隙里走正交通道 ----------
+   障碍 = 所有「非端点所在层级链」的一级多边形拼块 / 二级框 / 承载块 / 三级框,各向外膨胀 ROUTE_CLEAR;
+   允许区域(起终点自己的一级→二级/承载块→三级)内部只把其它设备当障碍。
+   网格 = 全局 ROUTE_LANE 步长的格点(并行车道天然相距 ROUTE_LANE)+ 起终点坐标线;
+   代价 = 长度 × (离区域轮廓太远时加价) + 拐弯惩罚 + 与已布线路同车道重叠加价;
+   搜索范围限在起终点外包向外 0.3×曼哈顿距离以内(绕路比上限约 1.6),找不到再逐级放宽。 */
+const ROUTE = { LANE: 0.25, TURN: 1.1, LV: 8, FAR: 0.8, SHARE: 30, DEV: 0.22, CL0: 0.6, MINRUN: 0.75, HW: 1.25, CORNER: 0.35 };
+function regionsOf(L) {
+  const g = L.grid, regs = [];
+  Object.entries(g.zonePieces).forEach(([k, rs]) => rs.forEach(r => regs.push({ lv: 1, k, r })));
+  Object.entries(g.subFrames).forEach(([k, r]) => regs.push({ lv: 2, k, r }));
+  Object.entries(g.carBlocks).forEach(([k, rs]) => rs.forEach((r, i) => regs.push({ lv: 2, k: k + '\0承载块' + i, r })));
+  L.boards.forEach(b => { if (b.level !== 'grp' || !b.rings || !b.rings[0]) return; let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; b.rings[0].forEach(p => { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }); regs.push({ lv: 3, k: b.dom + '\0' + b.zone + '\0' + b.sub + '\0' + b.name, r: [x0, z0, x1, z1] }); });
+  return regs;
+}
+function allowedKeys(L, d) { // 设备自己的层级链:一级 → 二级(或承载块)→ 三级
+  const g = L.grid, zk = d.dom + '\0' + d.zone, s = new Set([zk]); const inR = (r) => d.x > r[0] && d.x < r[2] && d.z > r[1] && d.z < r[3];
+  if (d.car) (g.carBlocks[zk] || []).forEach((r, i) => { if (inR(r)) s.add(zk + '\0承载块' + i); });
+  else { s.add(zk + '\0' + d.sub); const b = d.board; if (b) s.add(b.dom + '\0' + b.zone + '\0' + b.sub + '\0' + b.name); }
+  return s;
+}
+function laneRoute(S, E, obs, near, used, P, mFac) {
+  const h = ROUTE.LANE, man = Math.abs(S.x - E.x) + Math.abs(S.z - E.z), m = Math.max(4, mFac * man);
+  const X0 = Math.min(S.x, E.x) - m, X1 = Math.max(S.x, E.x) + m, Z0 = Math.min(S.z, E.z) - m, Z1 = Math.max(S.z, E.z) + m;
+  const axis = (a, b, s, e) => { const v = []; for (let k = Math.ceil(a / h); k <= Math.floor(b / h); k++) v.push(k * h); v.push(s, e); v.sort((p, q) => p - q); const o = []; v.forEach(x => { if (!o.length || x - o[o.length - 1] > 1e-6) o.push(x); }); return o; };
+  const xs = axis(X0, X1, S.x, E.x), zs = axis(Z0, Z1, S.z, E.z), nx = xs.length, nz = zs.length, N = nx * nz;
+  if (N > 2.6e6) return null;
+  const lb = (arr, v) => { let lo = 0, hi = arr.length; while (lo < hi) { const md = (lo + hi) >> 1; if (arr[md] <= v) lo = md + 1; else hi = md; } return lo; }; // 第一个 > v
+  const ub = (arr, v) => { let lo = 0, hi = arr.length; while (lo < hi) { const md = (lo + hi) >> 1; if (arr[md] < v) lo = md + 1; else hi = md; } return lo - 1; }; // 最后一个 < v
+  const blk = new Uint8Array(N), nr = new Uint8Array(N);
+  const paint = (arr, r, val) => { if (r[2] < X0 || r[0] > X1 || r[3] < Z0 || r[1] > Z1) return; const i0 = lb(xs, r[0] + 1e-9), i1 = ub(xs, r[2] - 1e-9), j0 = lb(zs, r[1] + 1e-9), j1 = ub(zs, r[3] - 1e-9); for (let j = j0; j <= j1; j++) { const o = j * nx; for (let i = i0; i <= i1; i++) arr[o + i] = val; } };
+  // 离轮廓的远近分级:nr = 0 贴着轮廓(≤ ROUTE_CLEAR + 1 车道),越远级别越高,代价越大
+  nr.fill(ROUTE.LV); for (let lv = ROUTE.LV - 1; lv >= 0; lv--) { const e = ROUTE.CL0 + (lv + 1) * h - 1e-6; near.forEach(r => { const q = [r[0] - e, r[1] - e, r[2] + e, r[3] + e]; if (q[2] < X0 || q[0] > X1 || q[3] < Z0 || q[1] > Z1) return; const i0 = lb(xs, q[0] + 1e-9), i1 = ub(xs, q[2] - 1e-9), j0 = lb(zs, q[1] + 1e-9), j1 = ub(zs, q[3] - 1e-9); for (let j = j0; j <= j1; j++) { const o = j * nx; for (let i = i0; i <= i1; i++) if (nr[o + i] > lv) nr[o + i] = lv; } }); }
+  const fi = (arr, v) => { let k = lb(arr, v) - 1; if (k < 0 || Math.abs(arr[k] - v) > 1e-6) k = Math.max(0, Math.min(arr.length - 1, k + 1)); return k; };
+  obs.forEach(r => paint(blk, r, 1));
+  // 轮廓拐角线:区域外扩 ROUTE_CLEAR 后的边所在坐标(最近的格线);在这些位置拐弯更便宜 → 折点落在轮廓台阶处
+  const cX = new Uint8Array(nx), cZ = new Uint8Array(nz); near.forEach(r => { if (r[2] < X0 - 2 || r[0] > X1 + 2 || r[3] < Z0 - 2 || r[1] > Z1 + 2) return; [r[0] - ROUTE.CL0, r[2] + ROUTE.CL0].forEach(v => { const k = fi(xs, v); [k - 1, k, k + 1].forEach(q => { if (q >= 0 && q < nx && Math.abs(xs[q] - v) <= h / 2 + 1e-6) cX[q] = 1; }); }); [r[1] - ROUTE.CL0, r[3] + ROUTE.CL0].forEach(v => { const k = fi(zs, v); [k - 1, k, k + 1].forEach(q => { if (q >= 0 && q < nz && Math.abs(zs[q] - v) <= h / 2 + 1e-6) cZ[q] = 1; }); }); });
+  const s0 = fi(zs, S.z) * nx + fi(xs, S.x), e0 = fi(zs, E.z) * nx + fi(xs, E.x); blk[s0] = 0; blk[e0] = 0;
+  /* A*:状态 = (格点, 来向);每个状态记下当前直线段已走长度,超过 MAX_SEG 必须拐弯,
+     拐弯前本段至少 ROUTE.MINRUN(避免 0.25 的小抖动);代价 = 逐格(长度 × 离轮廓远近系数 + 同车道重叠加价)+ 拐弯惩罚 */
+  const MS = P.MAX_SEG, NS = N * 4, dist = new Float32Array(NS).fill(Infinity), prev = new Int32Array(NS).fill(-1), run = new Float32Array(NS), closed = new Uint8Array(NS);
+  let hk = new Float64Array(1 << 16), hv = new Int32Array(1 << 16), hn = 0;
+  const push = (k, v) => { if (hn >= hk.length) { const a = new Float64Array(hk.length * 2); a.set(hk); hk = a; const b = new Int32Array(hv.length * 2); b.set(hv); hv = b; } let i = hn++; while (i > 0) { const p = (i - 1) >> 1; if (hk[p] <= k) break; hk[i] = hk[p]; hv[i] = hv[p]; i = p; } hk[i] = k; hv[i] = v; };
+  const pop = () => { const v = hv[0], k = hk[--hn], vv = hv[hn]; let i = 0; for (;;) { let c = 2 * i + 1; if (c >= hn) break; if (c + 1 < hn && hk[c + 1] < hk[c]) c++; if (hk[c] >= k) break; hk[i] = hk[c]; hv[i] = hv[c]; i = c; } hk[i] = k; hv[i] = vv; return v; };
+  const exI = e0 % nx, ezJ = (e0 / nx) | 0, W = ROUTE.HW, H = (n) => W * (Math.abs(xs[n % nx] - xs[exI]) + Math.abs(zs[(n / nx) | 0] - zs[ezJ]));
+  const q3 = v => Math.round(v * 1000) + 2e6, kH = (j, i) => q3(zs[j]) * 1e7 + q3(xs[i]), kV = (i, j) => q3(xs[i]) * 1e7 + q3(zs[j]); // 车道占用键:按真实坐标(各链路共用同一套格线)
+  const uH = used ? used.H : null, uV = used ? used.V : null, FAR = ROUTE.FAR / ROUTE.LV, DX = [1, -1, 0, 0], DZ = [0, 0, 1, -1];
+  for (let d = 0; d < 4; d++) { dist[s0 * 4 + d] = 0; run[s0 * 4 + d] = 1e3; push(H(s0), s0 * 4 + d); } // 起点:任意方向出发
+  let end = -1;
+  while (hn) {
+    const st = pop(); if (closed[st]) continue; closed[st] = 1; const n = st >> 2, d = st & 3, cd = dist[st]; if (n === e0) { end = st; break; }
+    const i = n % nx, j = (n / nx) | 0, r0 = run[st], first = n === s0;
+    for (let k = 0; k < 4; k++) {
+      const turn = k !== d; if (!first && (k ^ 1) === d) continue; if (!first && turn && r0 < ROUTE.MINRUN - 1e-6) continue;
+      const ni = i + DX[k], nj = j + DZ[k]; if (ni < 0 || nj < 0 || ni >= nx || nj >= nz) continue; const nn = nj * nx + ni; if (blk[nn]) continue;
+      const len = k < 2 ? Math.abs(xs[ni] - xs[i]) : Math.abs(zs[nj] - zs[j]); const nrun = (turn || first) ? len : r0 + len; if (nrun > MS + 1e-6) continue;
+      let c = cd + len * (1 + FAR * Math.min(nr[nn], nr[n])) + (turn && !first ? ROUTE.TURN * (((d < 2 ? cX[i] : cZ[j])) ? ROUTE.CORNER : 1) : 0);
+      if (used) { const key = k < 2 ? kH(j, Math.min(i, ni)) : kV(i, Math.min(j, nj)); if (key >= 0 && (k < 2 ? uH : uV).has(key)) c += len * ROUTE.SHARE; }
+      const ns = nn * 4 + k; if (!closed[ns] && c < dist[ns] - 1e-6) { dist[ns] = c; prev[ns] = st; run[ns] = nrun; push(c + H(nn), ns); }
+    }
+  }
+  if (end < 0) return null;
+  const pts = []; for (let st = end; st >= 0; st = prev[st]) { const n = st >> 2; const p = [xs[n % nx], zs[(n / nx) | 0]]; if (!pts.length || Math.abs(pts[pts.length - 1][0] - p[0]) > 1e-9 || Math.abs(pts[pts.length - 1][1] - p[1]) > 1e-9) pts.push(p); }
+  pts.reverse();
+  if (used) for (let q = 1; q < pts.length; q++) { const A = pts[q - 1], B = pts[q];
+    if (Math.abs(A[1] - B[1]) < 1e-9) { const jj = fi(zs, A[1]); for (let ii = fi(xs, Math.min(A[0], B[0])); xs[ii] < Math.max(A[0], B[0]) - 1e-7; ii++) { const k = kH(jj, ii); if (k >= 0) uH.add(k); } }
+    else { const ii = fi(xs, A[0]); for (let jj = fi(zs, Math.min(A[1], B[1])); zs[jj] < Math.max(A[1], B[1]) - 1e-7; jj++) { const k = kV(ii, jj); if (k >= 0) uV.add(k); } } }
+  return mergeCol(pts);
+}
+function mergeCol(p0) { const p = []; p0.forEach(q => { if (p.length >= 2) { const a = p[p.length - 2], b = p[p.length - 1]; if ((Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(b[0] - q[0]) < 1e-9) || (Math.abs(a[1] - b[1]) < 1e-9 && Math.abs(b[1] - q[1]) < 1e-9)) { p[p.length - 1] = q; return; } } if (!p.length || Math.hypot(q[0] - p[p.length - 1][0], q[1] - p[p.length - 1][1]) > 1e-9) p.push(q); }); return p; }
 function dijkstraGrid(obs, s, e, step) {
   const q = v => Math.round(v / step);
   let minX = Math.min(s[0], e[0]), maxX = Math.max(s[0], e[0]), minZ = Math.min(s[1], e[1]), maxZ = Math.max(s[1], e[1]);
