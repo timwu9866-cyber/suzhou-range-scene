@@ -4612,29 +4612,26 @@ function layout(nodes, carriers, opt) {
     const GAPU = 3.15, GAPV = 1.55;
     function toWorldUV(u, v) { return [ca * u - (sa / se) * v, -sa * u - (ca / se) * v]; }
     BR.disperse = disperse; BR.seam = +seam.toFixed(3); BR.pitch = +PITCH.toFixed(3);
+    /* 组内节点按近方形网格排: 列≈ceil(√n), 行列比 ≤ 2, n≥4 不出现单行/单列, n=3 排 2×2 缺一角 */
+    function squareCols(n, pref) {
+      if (n <= 1) return 1;
+      if (n === 2) return pref === 'tall' ? 1 : 2;
+      const a = Math.ceil(Math.sqrt(n)), cands = [];
+      for (let c = 2; c <= n; c++) {
+        const r = Math.ceil(n / c);
+        if (r < 2) continue;
+        if (Math.max(r, c) / Math.min(r, c) > 2) continue;
+        if (r * c - n >= Math.min(r, c)) continue;
+        cands.push({ c, r, sc: Math.abs(c - a) + Math.abs(r - c) * 0.1 + (pref === 'tall' ? (c > r ? 0.6 : 0) : (c < r ? 0.6 : 0)) });
+      }
+      cands.sort((x, y) => x.sc - y.sc || x.c - y.c);
+      return cands.length ? cands[0].c : a;
+    }
     blobs.forEach(g => {
       const n = g.members.length;
       const hk = (g.dom || '') + '|' + (g.car ? 'car|' + (g.zone || 'edge') : g.name) + '|' + (g.sub || '');
       const bias = [1.15, 1.0, 0.88, 1.25][hash('排|' + hk) % 4]; 
-      let cols = 1, best = 1e9;
-      if (n > 1) {
-        for (let c = 1; c <= n; c++) {
-          const r = Math.ceil(n / c);
-          const w = (c - 1) * PITCH + 1.7, h = (r - 1) * PITCH + 1.7, ratio = w / h;
-          if (ratio < 0.62 || ratio > 1.6) continue;
-          const sc = Math.round(Math.abs(Math.log(ratio / bias)) * 1e4);
-          if (sc < best) { best = sc; cols = c; }
-        }
-        if (best > 9) {
-          best = 1e9;
-          for (let c = 1; c <= n; c++) {
-            const r = Math.ceil(n / c);
-            const w = (c - 1) * PITCH + 1.7, h = (r - 1) * PITCH + 1.7;
-            const sc = Math.round(Math.abs(Math.log((w / h) / 1.15)) * 1e4);
-            if (sc < best) { best = sc; cols = c; }
-          }
-        }
-      }
+      const cols = squareCols(n, bias >= 1 ? 'wide' : 'tall');
       const rows = Math.ceil(n / cols);
       const px = [0], pz = [0];
       for (let c = 1; c < cols; c++) px.push(px[c - 1] + PITCH);
@@ -4654,7 +4651,7 @@ function layout(nodes, carriers, opt) {
     groups.forEach(g => {
       if (g.dom !== '公共域' || g.members.length < 2) return;
       const n = g.members.length;
-      const cols = n > 12 ? 2 : 1;
+      const cols = squareCols(n, 'tall');
       const rows = Math.ceil(n / cols);
       const px = [0], pz = [0];
       for (let c = 1; c < cols; c++) px.push(px[c - 1] + PITCH);
