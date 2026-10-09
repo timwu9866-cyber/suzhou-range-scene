@@ -4611,11 +4611,13 @@ function layout(nodes, carriers, opt) {
     const ca = Math.cos(AZ), sa = Math.sin(AZ), se = Math.sin(EL);
     const disperse = Math.max(0, Math.min(100, opt.disperse == null ? 28 : +opt.disperse));
     const du = disperse / 100;
-    const seam = 0.18 + du * 1.22; // 三级矩形之间的缝: 0≈0.18, 28≈0.52, 100≈1.40
-    const PITCH = 1.46 + du * 0.62; // 组内节点间距: 0≈1.46, 28≈1.63, 100≈2.08
-    const GAPU = 3.15, GAPV = 1.55;
+    const seam = 0.40 + du * 2.68; // 三级矩形左右缝: 0≈0.40, 28≈1.15, 100≈3.08
+    const seamZ = seam * 1.3; // 前后(纵深)缝再大 1.3 倍: 28≈1.50
+    const PITCH = 1.606 + du * 0.682; // 组内节点间距(+10%): 0≈1.61, 28≈1.80, 100≈2.29
+    const TN = opt.tune || {};
+    const GAPU = TN.GAPU || 5.9, GAPV = TN.GAPV || 3.5, PGU = TN.PGU || 1.3, PGV = TN.PGV || 1.4; // 公共域组间再放宽,保持三域每节点面积接近
     function toWorldUV(u, v) { return [ca * u - (sa / se) * v, -sa * u - (ca / se) * v]; }
-    BR.disperse = disperse; BR.seam = +seam.toFixed(3); BR.pitch = +PITCH.toFixed(3);
+    BR.disperse = disperse; BR.seam = +seam.toFixed(3); BR.seamZ = +seamZ.toFixed(3); BR.pitch = +PITCH.toFixed(3);
     /* 组内节点按近方形网格排: 列≈ceil(√n), 行列比 ≤ 2, n≥4 不出现单行/单列, n=3 排 2×2 缺一角 */
     function squareCols(n, pref) {
       if (n <= 1) return 1;
@@ -4682,16 +4684,16 @@ function layout(nodes, carriers, opt) {
       z.items = [];
     });
     // 二级子区内的三级组收成世界坐标直角网格,整块进货架,避免和别的子区交错
-    const PADN = 0.62;
+    const PADN = 1.05, PADZ = 1.25; // 节点到三级矩形边:左右 1.05,前后 1.25
     function gridSub(list) {
       const ordered = list.slice().sort((a, b) => (hash(a.k) - hash(b.k)) || (a.name < b.name ? -1 : 1));
       const n = ordered.length;
       function slackOf(cols) {
         const rows = Math.ceil(n / cols);
         const colW = Array(cols).fill(0), rowH = Array(rows).fill(0);
-        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; colW[c] = Math.max(colW[c], g.w + 2 * PADN); rowH[r] = Math.max(rowH[r], g.h + 2 * PADN); });
+        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; colW[c] = Math.max(colW[c], g.w + 2 * PADN); rowH[r] = Math.max(rowH[r], g.h + 2 * PADZ); });
         let side = 0;
-        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; side = Math.max(side, Math.min(colW[c] - (g.w + 2 * PADN), rowH[r] - (g.h + 2 * PADN))); });
+        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; side = Math.max(side, Math.min(colW[c] - (g.w + 2 * PADN), rowH[r] - (g.h + 2 * PADZ))); });
         return side;
       }
       let cols = 1, bestSc = 1e9;
@@ -4699,19 +4701,19 @@ function layout(nodes, carriers, opt) {
       const rows = Math.ceil(n / cols);
       if (slackOf(cols) <= 0.4) {
         const colW = Array(cols).fill(0), rowH = Array(rows).fill(0);
-        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; colW[c] = Math.max(colW[c], g.w + 2 * PADN); rowH[r] = Math.max(rowH[r], g.h + 2 * PADN); });
+        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; colW[c] = Math.max(colW[c], g.w + 2 * PADN); rowH[r] = Math.max(rowH[r], g.h + 2 * PADZ); });
         const x0s = [], z0s = []; let xx = 0, zz = 0;
         for (let c = 0; c < cols; c++) { x0s[c] = xx; xx += colW[c] + (c + 1 < cols ? seam : 0); }
-        for (let r = 0; r < rows; r++) { z0s[r] = zz; zz += rowH[r] + (r + 1 < rows ? seam : 0); }
-        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; g.gx = x0s[c] + PADN + g.w / 2; g.gz = z0s[r] + PADN + g.h / 2; });
+        for (let r = 0; r < rows; r++) { z0s[r] = zz; zz += rowH[r] + (r + 1 < rows ? seamZ : 0); }
+        ordered.forEach((g, i) => { const c = i % cols, r = (i / cols) | 0; g.gx = x0s[c] + PADN + g.w / 2; g.gz = z0s[r] + PADZ + g.h / 2; });
       } else {
         let zz = 0;
         for (let r = 0; r < rows; r++) {
           const rw = ordered.slice(r * cols, Math.min(n, (r + 1) * cols));
-          const rh = rw.reduce((m, g) => Math.max(m, g.h + 2 * PADN), 0);
+          const rh = rw.reduce((m, g) => Math.max(m, g.h + 2 * PADZ), 0);
           let xx = 0;
-          rw.forEach((g, c) => { g.gx = xx + PADN + g.w / 2; g.gz = zz + PADN + g.h / 2; xx += g.w + 2 * PADN + (c + 1 < rw.length ? seam : 0); });
-          zz += rh + (r + 1 < rows ? seam : 0);
+          rw.forEach((g, c) => { g.gx = xx + PADN + g.w / 2; g.gz = zz + PADZ + g.h / 2; xx += g.w + 2 * PADN + (c + 1 < rw.length ? seam : 0); });
+          zz += rh + (r + 1 < rows ? seamZ : 0);
         }
       }
       let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
@@ -4851,7 +4853,7 @@ function layout(nodes, carriers, opt) {
           if (!z.lay || z.sv >= rw.h - 0.3 || z.lay.rows.length < 2) return;
           const base = z.lay.rows.reduce((sum, r) => sum + r.h, 0);
           const g = (rw.h - base) / (z.lay.rows.length - 1);
-          if (g < z.lay.gapV || g - z.lay.gapV > 2.4) return;
+          if (g < z.lay.gapV || g - z.lay.gapV > 3.4) return;
           z.lay.gapV = g;
           z.lay.rows.forEach(r => { r.gapV = g; });
           z.lay.h = base + g * (z.lay.rows.length - 1);
@@ -4859,7 +4861,7 @@ function layout(nodes, carriers, opt) {
         });
       });
     }
-    const ZGAPU = 3.35, ZGAPV = 1.85, SEAM = 1.7;
+    const ZGAPU = TN.ZGAPU || 7.2, ZGAPV = TN.ZGAPV || 4.7, SEAM = TN.SEAM || 5.5, ATGT = TN.ATGT || 1.5;
     let best = null;
     const raMax = Math.min(AZN.length, 6), rbMax = Math.min(BZN.length, 6), rpMax = Math.min(pGroups.length, 10);
     for (let ra = 2; ra <= raMax; ra++) {
@@ -4867,7 +4869,7 @@ function layout(nodes, carriers, opt) {
         for (let rp = 2; rp <= rpMax; rp++) {
           const aLay = packInto(AZN, ra, ZGAPU, ZGAPV); align(aLay, ZGAPU + 0.35);
           const bLay = packInto(BZN, rb, ZGAPU, ZGAPV); align(bLay, ZGAPU + 0.35);
-          const gLay = packInto(pGroups, rp, GAPU, GAPV); align(gLay, GAPU + 0.35);
+          const gLay = packInto(pGroups, rp, GAPU * PGU, GAPV * PGV); align(gLay, GAPU * PGU + 0.35);
           const width = aLay.w + SEAM + gLay.w + SEAM + bLay.w;
           const height = Math.max(aLay.h, bLay.h, gLay.h);
           const aspect = width / Math.max(height, 0.2);
@@ -4878,12 +4880,12 @@ function layout(nodes, carriers, opt) {
             return (target - base) / (n - 1) - lay.gapV;
           }
           const extra = Math.max(gapNeed(aLay, height), gapNeed(bLay, height), gapNeed(gLay, height));
-          if (extra > 7.2) continue;
+          if (extra > 10) continue;
           const dens = [aLay.w / 350, bLay.w / 350, gLay.w / 100];
           const ar = Math.max.apply(null, dens) / Math.min.apply(null, dens);
           const short = Math.max(aLay.short, bLay.short);
-          if (ar > 1.4 || aspect < 1.2 || aspect > 1.95 || extra > 9) continue;
-          const sc = Math.abs(aspect - 1.5) * 8 + extra * 0.4 + short * 0.15 + (ra === rb ? 2.2 : 0) + Math.abs(aLay.w - bLay.w) * 0.05 + ar;
+          if (ar > (TN.ARMAX || 1.2) || aspect < 1.2 || aspect > 1.95 || extra > 12.6) continue;
+          const sc = Math.abs(aspect - ATGT) * 8 + extra * 0.4 + short * 0.15 + (ra === rb ? 2.2 : 0) + Math.abs(aLay.w - bLay.w) * 0.05 + ar;
           if (!best || sc < best.sc) best = { aLay, bLay, gLay, aspect, sc, ra, rb, rp, width, height };
         }
       }
@@ -4894,13 +4896,13 @@ function layout(nodes, carriers, opt) {
       if (n < 2) return;
       const base = lay.rows.reduce((sum, r) => sum + r.h, 0);
       const need = (target - base) / (n - 1);
-      const g = Math.max(lay.gapV, Math.min(lay.gapV + 1.6, need));
+      const g = Math.max(lay.gapV, Math.min(lay.gapV + 2.2, need));
       lay.gapV = g;
       lay.rows.forEach(rw => { rw.gapV = g; });
       lay.h = base + g * (n - 1);
     }
     const aLay = best.aLay, bLay = best.bLay, gLay = best.gLay;
-    fillShort(aLay, 4); fillShort(bLay, 4); fillTall(aLay); fillTall(bLay);
+    fillShort(aLay, 5.6); fillShort(bLay, 5.6); fillTall(aLay); fillTall(bLay);
     const top = Math.max(aLay.h, bLay.h, gLay.h);
     inflate(aLay, top); inflate(bLay, top); inflate(gLay, top);
     const pZone = PZN[0];
@@ -4916,7 +4918,7 @@ function layout(nodes, carriers, opt) {
     let uMin = 1e9, uMax = -1e9, vMin = 1e9, vMax = -1e9;
     live.forEach(z => z.items.forEach(g => { uMin = Math.min(uMin, g.uc); uMax = Math.max(uMax, g.uc); vMin = Math.min(vMin, g.vc); vMax = Math.max(vMax, g.vc); }));
     const curA = (uMax - uMin) / Math.max(1e-6, vMax - vMin);
-    const k = Math.max(0.805, Math.min(1, curA / 1.88));
+    const k = Math.max(TN.KF || 0.74, Math.min(1, curA / (TN.KA || 1.88)));
     if (k < 0.995) live.forEach(z => z.items.forEach(g => { g.vc = vMin + (g.vc - vMin) * k; }));
     function placeItems() {
       live.forEach(z => z.items.forEach(it => {
@@ -4931,7 +4933,7 @@ function layout(nodes, carriers, opt) {
       const subs = {};
       groups.forEach(g => { if (g.car || g.dx == null) return; const bk = g.dom + '\0' + g.zone + '\0' + g.sub; (subs[bk] = subs[bk] || []).push(g); });
       const keys = Object.keys(subs);
-      function nodesOf() { const pts = []; blobs.forEach(g => (g.local || []).forEach(lp => pts.push([g.x + lp[0], g.z + lp[1]]))); return pts; }
+      function nodesOf() { const pts = []; blobs.forEach(g => !g.car && (g.local || []).forEach(lp => pts.push([g.x + lp[0], g.z + lp[1]]))); return pts; }
       function holeOf(pts) {
         const uv = pts.map(p => [ca * p[0] - sa * p[1], -se * (sa * p[0] + ca * p[1])]);
         let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
@@ -4956,12 +4958,13 @@ function layout(nodes, carriers, opt) {
           const loc = og.local || [];
           for (let a = 0; a < loc.length; a++) {
             const x = og.x + loc[a][0], z = og.z + loc[a][1];
-            for (let b = 0; b < mine.length; b++) { const ddx = mine[b][0] - x, ddz = mine[b][1] - z; if (ddx * ddx + ddz * ddz < 1.36 * 1.36) return false; }
+            for (let b = 0; b < mine.length; b++) { const ddx = mine[b][0] - x, ddz = mine[b][1] - z; if (Math.abs(ddx) < FX && Math.abs(ddz) < FZ) return false; }
           }
         }
         return true;
       }
-      for (let step = 0; step < 28; step++) {
+      const FX = TN.FX || (2 * PADN + seam), FZ = TN.FZ || (2 * PADZ + seamZ);
+      for (let step = 0; step < (TN.PHS || 48); step++) {
         const h = holeOf(nodesOf());
         if (h.frac <= 0.112) break;
         let bestK = null, bestD = 1e9;
@@ -4977,8 +4980,9 @@ function layout(nodes, carriers, opt) {
         let du = h.cu - u, dv = h.cv - v; const len = Math.hypot(du, dv) || 1; du = du / len * 1.5; dv = dv / len * 1.5;
         const dx = ca * du - (sa / se) * dv, dz = -sa * du - (ca / se) * dv;
         if (!farEnough(list, dx, dz)) { keys.splice(keys.indexOf(bestK), 1); if (!keys.length) break; continue; }
-        list.forEach(g => { g.x += dx; g.z += dz; });
+        list.forEach(g => { g.x += dx; g.z += dz; }); BR.plugMoves = (BR.plugMoves || 0) + 1;
       }
+      BR.plugEnd = +holeOf(nodesOf()).frac.toFixed(3); BR.plugKeys = keys.length;
     })();
 
     const gBoard = {}, sBoard = {}, zBoard = {}, dBoard = {}, cBoard = {};
@@ -4997,8 +5001,8 @@ function layout(nodes, carriers, opt) {
     function outline(pts) {
       let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
       pts.forEach(p => { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); });
-      const pad = 0.62;
-      return [[x0 - pad, z0 - pad], [x1 + pad, z0 - pad], [x1 + pad, z1 + pad], [x0 - pad, z1 + pad]];
+      const pad = 1.05, padZ = 1.25;
+      return [[x0 - pad, z0 - padZ], [x1 + pad, z0 - padZ], [x1 + pad, z1 + padZ], [x0 - pad, z1 + padZ]];
     }
     blobs.forEach(g => {
       const pts = [];
@@ -5063,7 +5067,7 @@ function layout(nodes, carriers, opt) {
   const all = []; NP.forEach((p, i) => all.push({ x: p.x, z: p.z, f: footOf(nodes[i]['3D样式代码']) })); CP.forEach((p, i) => all.push({ x: p.x, z: p.z, f: footOf(carStyle(carriers[i])) }));
   let minD = 1e9, coll = 0, nan = 0;
   for (let i = 0; i < all.length; i++) { if (!isFinite(all[i].x) || !isFinite(all[i].z)) nan++; for (let j = i + 1; j < all.length; j++) { const dx = all[i].x - all[j].x, dz = all[i].z - all[j].z; if (Math.abs(dx) > 2.4 || Math.abs(dz) > 2.4) continue; const d = Math.hypot(dx, dz); minD = Math.min(minD, d); const lim = (all[i].f + all[j].f) / 2; if (Math.abs(dx) < lim && Math.abs(dz) < lim) coll++; } }
-  const L = { U, HY, nodes: NP, carriers: CP, boards, fail, campRatio: +BR.aspect.toFixed(3), zoneRatio: 0, pubRatio: 1.7, campEff: 0, eff: 0, aspect: +BR.aspect.toFixed(3), plateFill: 0, spread: 1, disperse: BR.disperse, seam: BR.seam, pitch: BR.pitch, snapped: BR.snapped || 0, minSpacing: +minD.toFixed(3), collisions: coll, nan, tree: T, domLabel,
+  const L = { U, HY, nodes: NP, carriers: CP, boards, fail, campRatio: +BR.aspect.toFixed(3), zoneRatio: 0, pubRatio: 1.7, campEff: 0, eff: 0, aspect: +BR.aspect.toFixed(3), plateFill: 0, spread: 1, disperse: BR.disperse, seam: BR.seam, pitch: BR.pitch, plug: [BR.plugMoves || 0, BR.plugEnd, BR.plugKeys], snapped: BR.snapped || 0, seamZ: BR.seamZ, padX: 1.05, padZ: 1.25, minSpacing: +minD.toFixed(3), collisions: coll, nan, tree: T, domLabel,
     shape: { aspect: +BR.aspect.toFixed(3), world: { w: +BR.W.toFixed(2), h: +BR.H.toFixed(2) }, hole: +BR.hole.toFixed(3), A: { w: +bA.x1.toFixed(2), h: +(bA.z1 - bA.z0).toFixed(2), rects: 1 }, B: { w: +(bB.x1 - bB.x0).toFixed(2), h: +(bB.z1 - bB.z0).toFixed(2), depthRatio: +((bB.z1 - bB.z0) / Math.max(1, bB.x1 - bB.x0)).toFixed(2) }, P: { w: +pCamp.w.toFixed(2), h: +pCamp.h.toFixed(2) }, gapAB: BR.GAPX, arr: arrCount, zoneAspect, preset: { ia: BR.ia, ib: BR.ib, host: BR.host } } };
   L.ms = +(((typeof performance !== 'undefined' ? performance : Date).now()) - t0).toFixed(2);
   return L;
@@ -5334,7 +5338,7 @@ function readSpread() {
 }
 /* ---------- 布局 + 路由 ---------- */
 const t0 = performance.now();
-let L = RL.layout(nodes, carriers, { footOf: RM.footOf, disperse: readSpread() });
+let L = RL.layout(nodes, carriers, { footOf: RM.footOf, disperse: readSpread(), tune: window.__TUNE });
 const tLay = performance.now() - t0;
 let R = RL.routeLinks(L, nodes, carriers, links, { footOf: RM.footOf });
 const tRoute = performance.now() - t0 - tLay;
@@ -5393,18 +5397,20 @@ const roadPos = [], canalPos = [];
 let bx0 = 1e9, bx1 = -1e9, bz0 = 1e9, bz1 = -1e9;
 areaRects.forEach(r => { bx0 = Math.min(bx0, r.x0); bx1 = Math.max(bx1, r.x1); bz0 = Math.min(bz0, r.z0); bz1 = Math.max(bz1, r.z1); });
 const vSeg = [], hSeg = [];
+// 路网只铺在二级子区之间的通道上(比三级缝宽),三级缝本身不铺
+const RG0 = Math.max(0.6, (L.seamZ || L.seam || 0.5) * 1.12), RG1 = RG0 + 3.6;
 for (let i = 0; i < areaRects.length; i++) for (let j2 = i + 1; j2 < areaRects.length; j2++) {
   const a = areaRects[i], b = areaRects[j2];
   let gapX = 0, left = null, right = null;
   if (a.x1 <= b.x0) { gapX = b.x0 - a.x1; left = a; right = b; }
   else if (b.x1 <= a.x0) { gapX = a.x0 - b.x1; left = b; right = a; }
   const oz0 = Math.max(a.z0, b.z0), oz1 = Math.min(a.z1, b.z1);
-  if (left && gapX >= 0.6 && gapX <= 2.4 && oz1 - oz0 > 3.2) vSeg.push({ b: (left.x1 + right.x0) / 2, a0: oz0, a1: oz1 });
+  if (left && gapX >= RG0 && gapX <= RG1 && oz1 - oz0 > 3.2) vSeg.push({ b: (left.x1 + right.x0) / 2, a0: oz0, a1: oz1 });
   let gapZ = 0, bot = null, top = null;
   if (a.z1 <= b.z0) { gapZ = b.z0 - a.z1; bot = a; top = b; }
   else if (b.z1 <= a.z0) { gapZ = a.z0 - b.z1; bot = b; top = a; }
   const ox0 = Math.max(a.x0, b.x0), ox1 = Math.min(a.x1, b.x1);
-  if (bot && gapZ >= 0.6 && gapZ <= 2.4 && ox1 - ox0 > 3.2) hSeg.push({ b: (bot.z1 + top.z0) / 2, a0: ox0, a1: ox1 });
+  if (bot && gapZ >= RG0 && gapZ <= RG1 && ox1 - ox0 > 3.2) hSeg.push({ b: (bot.z1 + top.z0) / 2, a0: ox0, a1: ox1 });
 }
 function mergeSeg(segs) {
   segs.sort((p, q) => p.b - q.b || p.a0 - q.a0);
@@ -5461,7 +5467,7 @@ areaRects.forEach(r => {
   s2.x0 = Math.min(s2.x0, r.x0); s2.x1 = Math.max(s2.x1, r.x1); s2.z0 = Math.min(s2.z0, r.z0); s2.z1 = Math.max(s2.z1, r.z1);
 });
 Object.keys(subSeen).forEach(k => {
-  const s2 = subSeen[k], mrg = 0.5;
+  const s2 = subSeen[k], mrg = 0.75;
   const x0 = s2.x0 - mrg, x1 = s2.x1 + mrg, z0 = s2.z0 - mrg, z1 = s2.z1 + mrg, y = 0.006;
   const pos = [x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z0, x1, y, z1, x0, y, z1];
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
@@ -5501,7 +5507,7 @@ Object.keys(subSeen).forEach(k => {
   z.x0 = Math.min(z.x0, s2.x0); z.x1 = Math.max(z.x1, s2.x1); z.z0 = Math.min(z.z0, s2.z0); z.z1 = Math.max(z.z1, s2.z1);
 });
 Object.keys(zoneSeen).forEach(zk => {
-  const z = zoneSeen[zk], pad = 0.92;
+  const z = zoneSeen[zk], pad = 1.6;
   const x0 = z.x0 - pad, x1 = z.x1 + pad, z0 = z.z0 - pad, z1 = z.z1 + pad, y = 0.016;
   const g = new T.BufferGeometry();
   g.setAttribute('position', new T.Float32BufferAttribute([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1, x0, y, z0], 3));
@@ -5653,15 +5659,15 @@ R.links.forEach((r, k) => {
   const y = 0.058 + (k % 3) * 0.006;
   const p2 = L.spread ? r.pts : RL.roundPath(r.pts, 0.42, 0.08), p3 = p2.map(p => new V3(p[0], y, p[1]));
   const cv = new PolyCurve(p3);
-  const rMain = grp === 'mgmt' ? 0.108 : 0.151;
+  const rMain = grp === 'mgmt' ? 0.05 : grp === 'cross' ? 0.07 : 0.065; // 约为上一版 0.108/0.151 的 45%
   const mk = (r0) => { const m = new T.ShaderMaterial({ uniforms: { uLane: { value: col.clone() }, uHot: { value: col.clone() }, uLen: { value: cv.len }, uTime: U.uTime, uSpeed: { value: grp === 'cross' ? 2.2 : 1.6 }, uDash: { value: 1.05 }, uGap: { value: 1.55 }, uAlpha: { value: 0.9 }, uLaneA: { value: 0.42 }, uHotA: { value: 1 } }, vertexShader: tubeVS, fragmentShader: tubeFS, transparent: true, depthWrite: false, blending: T.AdditiveBlending });
     const me = new T.Mesh(new T.TubeGeometry(cv, Math.min(1200, p3.length + 40), r0, 5, false), m); me.renderOrder = 10; gLinks.add(me); return me; };
   const main = mk(rMain), halo = mk(rMain * 1.65);
   const extra = [];
   const amat = new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, blending: T.AdditiveBlending, depthWrite: false });
-  [0.5, 0.93].forEach(u => { const c = new T.Mesh(new T.ConeGeometry(0.22, 0.5, 8), amat); c.position.copy(cv.getPoint(u)); c.quaternion.setFromUnitVectors(new V3(0, 1, 0), cv.getTangentAt(u)); c.renderOrder = 11; gLinks.add(c); extra.push(c); });
+  [0.5, 0.93].forEach(u => { const c = new T.Mesh(new T.ConeGeometry(0.1, 0.23, 8), amat); c.position.copy(cv.getPoint(u)); c.quaternion.setFromUnitVectors(new V3(0, 1, 0), cv.getTangentAt(u)); c.renderOrder = 11; gLinks.add(c); extra.push(c); });
   const jmat = new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, blending: T.AdditiveBlending, depthWrite: false });
-  [p3[0], p3[p3.length - 1]].forEach(p => { const s = new T.Mesh(new T.SphereGeometry(0.16, 10, 7), jmat); s.position.copy(p); s.renderOrder = 11; gLinks.add(s); extra.push(s); });
+  [p3[0], p3[p3.length - 1]].forEach(p => { const s = new T.Mesh(new T.SphereGeometry(0.075, 10, 7), jmat); s.position.copy(p); s.renderOrder = 11; gLinks.add(s); extra.push(s); });
   LK.push({ id: r.id, k, lk, grp, flow: lk['流向编号'], col, hot: col.clone(), cv, pts2: p2, y, main, halo, extra, amat, jmat, S: devices[r.S.car ? 800 + r.S.i : r.S.i], E: devices[r.E.car ? 800 + r.E.i : r.E.i], rMain, a: 1, nPk: Math.max(2, Math.round(cv.len / 9)) });
 });
   applyLinkLook(document.body.classList.contains('day'));
@@ -5877,7 +5883,7 @@ function updateLabels() {
     occupy(x0, y0, x0 + w, y0 + h); place(l, true, s[0], s[1]);
   };
   heads.forEach(l => { if (l.kind === 'grp' || l.kind === 'sub') return; placeHead(l, true); });
-  if (zoomed) heads.forEach(l => { if (l.kind === 'grp' || l.kind === 'sub') placeHead(l, true); });
+  if (zoomed) heads.forEach(l => { if (l.kind === 'sub') placeHead(l, true); }); // 拉近:子区名先占位,节点名其次,组名最后补空
   const sel = S.sel != null ? devices[S.sel] : null;
   const order = sel && !sel.car ? [sel.lbl].concat(nodeLbls.filter(l => l !== sel.lbl)) : nodeLbls;
   const minPri = C.ppu < C.fitPPU * 1.45 ? 2 : (C.ppu < C.fitPPU * 2.2 ? 1 : 0); // 全景只给靶标/网络安全设备,拉近后逐级放开
@@ -5888,6 +5894,7 @@ function updateLabels() {
     occupy(x0 - 4, y0 - 1, x1 + 4, y1 + 1); place(l, true, s[0], s[1]); shown++;
   });
   if (!zoomed) heads.forEach(l => { if (l.kind === 'grp' || l.kind === 'sub') placeHead(l, true); });
+  else heads.forEach(l => { if (l.kind === 'grp') placeHead(l, true); });
   lblStat = { shown, total: nodeLbls.length, grp: LBL.filter(l => l.kind === 'grp' && l.shown).length };
 }
 
@@ -5981,7 +5988,7 @@ function applyDisp(v, persist) {
   const sl = $('#spread'); if (sl) sl.value = String(v);
   const lab = $('#spreadV'); if (lab) lab.textContent = String(v);
   if (persist) { try { localStorage.setItem('range-spread', String(v)); } catch (e) {} }
-  L = RL.layout(nodes, carriers, { footOf: RM.footOf, disperse: v });
+  L = RL.layout(nodes, carriers, { footOf: RM.footOf, disperse: v, tune: window.__TUNE });
   R = RL.routeLinks(L, nodes, carriers, links, { footOf: RM.footOf });
   if (window.__api) window.__api.L = L;
   syncDevices();
@@ -6100,7 +6107,7 @@ const COLDEF = lin(PAL.def), PKW = new T.Color(1, 1, 1), PK = [];
 function packets(t) {
   PK.length = 0;
   const dayPk = document.body.classList.contains('day');
-  LK.forEach(l => { if (l.a < 0.5) return; const sp = l.grp === 'cross' ? 3.2 : 2.4; for (let i = 0; i < l.nPk; i++) { const u = ((t * sp / l.cv.len) + i / l.nPk) % 1; const p = l.cv.getPoint(u); if (dayPk) glow.add(p.x, p.y + 0.06, p.z, 0.95, l.hot, 1); else { glow.add(p.x, p.y + 0.06, p.z, 0.78, l.col, 1); glow.add(p.x, p.y + 0.06, p.z, 0.26, PKW, 0.65); } if (i === 0) PK.push([l.id, p.x, p.y, p.z]); } });
+  LK.forEach(l => { if (l.a < 0.5) return; const sp = l.grp === 'cross' ? 3.2 : 2.4; for (let i = 0; i < l.nPk; i++) { const u = ((t * sp / l.cv.len) + i / l.nPk) % 1; const p = l.cv.getPoint(u); if (dayPk) glow.add(p.x, p.y + 0.03, p.z, 0.43, l.hot, 1); else { glow.add(p.x, p.y + 0.03, p.z, 0.35, l.col, 1); glow.add(p.x, p.y + 0.03, p.z, 0.12, PKW, 0.65); } if (i === 0) PK.push([l.id, p.x, p.y, p.z]); } });
 }
 let tPrev = performance.now();
 function frame(now) {
@@ -6149,7 +6156,7 @@ window.__probe = function () {
     highlighted: devices.filter(d => !d.car && d.k >= 0.5).length };
 };
 window.__packets = () => PK.map(p => p.slice());
-window.__api = { select, focusOn, fitTo, setView, toggleCar, devices, S, C, LK, screenOf: (j) => { const d = devices[j]; return screenOf(d.x, HY.NODE_Y + d.H * 0.5, d.z); }, applyState, L };
+window.__api = { select, focusOn, fitTo, setView, toggleCar, devices, S, C, LK, screenOf: (j) => { const d = devices[j]; return screenOf(d.x, HY.NODE_Y + d.H * 0.5, d.z); }, screenXYZ: (x, y, z) => screenOf(x, y, z), HY, applyState, L };
 window.__ready = true;
 })();
 </script>
