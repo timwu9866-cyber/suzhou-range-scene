@@ -5160,7 +5160,7 @@ function routeLinks(L, nodes, carriers, links, opt) {
     // 端点让位:线头停在设备外沿 EDGE_PAD 处
     const trimEnd = (p, d, atStart) => { const a = atStart ? p[0] : p[p.length - 1], b = atStart ? p[1] : p[p.length - 2]; const L2 = Math.hypot(b[0] - a[0], b[1] - a[1]), pad = d.f / 2 + 0.16; if (L2 > pad + 0.05) { const t = pad / L2; const q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; if (atStart) p[0] = q; else p[p.length - 1] = q; } };
     trimEnd(path, S, true); trimEnd(path, E, false);
-    out.push({ id: label, ok: true, li, grp: lk['分组'], flow: lk['流向编号'], S, E, pts: path, obsN: obs.length, _ob: OB });
+    out.push({ id: label, ok: true, li, grp: lk['分组'], flow: lk['流向编号'], S, E, pts: path, obsN: obs.length, _ob: OB, _regs: REG.map(R => R.r) });
   });
   if (L.spread) { // 拉直无意义折弯 + 同缝并行错开(整条共线行程一起平移,避免拆出新台阶)
     const okL = out.filter(o => o.ok), h = ROUTE.LANE;
@@ -5171,14 +5171,20 @@ function routeLinks(L, nodes, carriers, links, opt) {
     const okPts = (o, P) => { for (let i = 1; i < P.length; i++) if (!okSeg(o, P[i - 1], P[i])) return false; return true; };
     // 找出点 i 所在的最大共线行程 [lo, hi]
     const runOf = (P, i) => { let lo = i, hi = i; while (lo > 0 && ((Math.abs(P[lo][0] - P[lo - 1][0]) < 1e-9 && Math.abs(P[i][0] - P[lo][0]) < 1e-9) || (Math.abs(P[lo][1] - P[lo - 1][1]) < 1e-9 && Math.abs(P[i][1] - P[lo][1]) < 1e-9))) lo--; while (hi + 1 < P.length && ((Math.abs(P[hi + 1][0] - P[hi][0]) < 1e-9 && Math.abs(P[i][0] - P[hi][0]) < 1e-9) || (Math.abs(P[hi + 1][1] - P[hi][1]) < 1e-9 && Math.abs(P[i][1] - P[hi][1]) < 1e-9))) hi++; return [lo, hi]; };
-    for (let round = 0; round < 5; round++) {
-      okL.forEach(o => { o.pts = simplifyPath(o.pts, o._ob || [], (a, b) => others(o, a, b)); });
+    for (let round = 0; round < 4; round++) {
+      okL.forEach(o => {
+        const clash = (a, b) => others(o, a, b);
+        o.pts = simplifyPath(o.pts, o._ob || [], clash);
+        o.pts = hugSnapLong(o.pts, o._ob || [], o._regs || REG.map(R => R.r), clash, PARAMS.ROUTE_CLEAR, ROUTE.HUG_TH);
+        o.pts = simplifyPath(o.pts, o._ob || [], clash);
+      });
       let moved = 0;
       okL.forEach(o => {
         const P = o.pts;
         for (let i = 1; i < P.length; i++) {
           if (!others(o, P[i - 1], P[i])) continue;
-          const [lo, hi] = runOf(P, i); // 整段共线行程
+          let [lo, hi] = runOf(P, i); // 整段共线行程(端点不平移)
+          if (lo === 0) lo++; if (hi === P.length - 1) hi--; if (hi < lo) continue;
           const hz = Math.abs(P[lo][1] - P[hi][1]) < 1e-9;
           for (const dl of [h, -h, 2 * h, -2 * h, 3 * h, -3 * h, 4 * h, -4 * h]) {
             const Q = P.map(p => p.slice());
@@ -5211,7 +5217,43 @@ function routeLinks(L, nodes, carriers, links, opt) {
       }
       o.pts = P;
     });
-    okL.forEach(o => { delete o._ob; });
+    // 最后再错开共线重叠(端点不动)
+    for (let pass = 0; pass < 6; pass++) {
+      let moved = 0;
+      okL.forEach(o => {
+        const P = o.pts;
+        for (let i = 1; i < P.length; i++) {
+          if (!others(o, P[i - 1], P[i])) continue;
+          let [lo, hi] = runOf(P, i); if (lo === 0) lo++; if (hi === P.length - 1) hi--; if (hi < lo) continue;
+          const hz = Math.abs(P[lo][1] - P[hi][1]) < 1e-9;
+          for (const dl of [h, -h, 2 * h, -2 * h, 3 * h, -3 * h, 4 * h, -4 * h, 5 * h, -5 * h]) {
+            const Q = P.map(p => p.slice());
+            for (let k = lo; k <= hi; k++) { if (hz) Q[k][1] += dl; else Q[k][0] += dl; }
+            const M = mergeCol(Q); if (okPts(o, M)) { o.pts = M; moved++; break; }
+          }
+        }
+      });
+      if (!moved) break;
+    }
+    // 端点钉回设备中心,用直角短 stub 接入,再让位到设备外沿
+    okL.forEach(o => {
+      let P = o.pts.slice();
+      const pin = (dev, atStart) => {
+        const mid = P[atStart ? 1 : P.length - 2], c = [dev.x, dev.z];
+        if (Math.abs(mid[0] - c[0]) < 1e-9 || Math.abs(mid[1] - c[1]) < 1e-9) {
+          if (atStart) P[0] = c; else P[P.length - 1] = c;
+        } else {
+          const elbow = [c[0], mid[1]]; // 先对齐 y 再竖连;若碰障则改另一直角
+          const elbow2 = [mid[0], c[1]];
+          const use = elbow;
+          if (atStart) P = [c, use].concat(P.slice(1)); else P = P.slice(0, -1).concat([use, c]);
+        }
+      };
+      pin(o.S, true); pin(o.E, false); P = mergeCol(P);
+      const trim = (atStart) => { const d = atStart ? o.S : o.E; const a = atStart ? P[0] : P[P.length - 1], b = atStart ? P[1] : P[P.length - 2]; const L2 = Math.hypot(b[0] - a[0], b[1] - a[1]), pad = d.f / 2 + 0.16; if (L2 > pad + 0.05) { const t = pad / L2, q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; if (atStart) P[0] = q; else P[P.length - 1] = q; } };
+      trim(true); trim(false); o.pts = mergeCol(P);
+      delete o._ob; delete o._regs;
+    });
   }
   return { links: out, fail, devs };
 }
@@ -5222,7 +5264,7 @@ function routeLinks(L, nodes, carriers, links, opt) {
    网格 = 全局 ROUTE_LANE 步长的格点(并行车道天然相距 ROUTE_LANE)+ 起终点坐标线;
    代价 = 长度 × (离区域轮廓太远时加价) + 拐弯惩罚 + 与已布线路同车道重叠加价;
    搜索范围限在起终点外包向外 0.3×曼哈顿距离以内(绕路比上限约 1.6),找不到再逐级放宽。 */
-const ROUTE = { LANE: 0.25, TURN: 3.5, LV: 8, FAR: 0.25, SHARE: 30, DEV: 0.22, CL0: 0.6, MINRUN: 0.5, HW: 1.2 };
+const ROUTE = { LANE: 0.25, TURN: 2.2, LV: 8, FAR: 2.8, SHARE: 30, DEV: 0.22, CL0: 0.6, MINRUN: 0.5, HW: 1.2, HUG_TH: 3.0 };
 function regionsOf(L) {
   const g = L.grid, regs = [];
   Object.entries(g.zonePieces).forEach(([k, rs]) => rs.forEach(r => regs.push({ lv: 1, k, r })));
@@ -5285,6 +5327,67 @@ function laneRoute(S, E, obs, near, used, P, mFac) {
     else { const ii = fi(xs, A[0]); for (let jj = fi(zs, Math.min(A[1], B[1])); zs[jj] < Math.max(A[1], B[1]) - 1e-7; jj++) { const k = kV(ii, jj); if (k >= 0) uV.add(k); } } }
   return mergeCol(pts);
 }
+function hugSnapLong(pts0, obs, regs, clashFn, CL, TH) {
+  /* 长直段贴边:对长度 > TH 的共线行程,试平移到与行程平行的轮廓边外 ROUTE_CLEAR 处;
+     候选按「贴边覆盖率」排序(行程上有多少比例落在某条轮廓的 CL±容差内),只接受覆盖率明显更好的平移。 */
+  const hit = (a, b, r) => Math.max(a[0], b[0]) > r[0] + 1e-9 && Math.min(a[0], b[0]) < r[2] - 1e-9 && Math.max(a[1], b[1]) > r[1] + 1e-9 && Math.min(a[1], b[1]) < r[3] - 1e-9;
+  const okSeg = (a, b) => { if (!(Math.abs(a[0] - b[0]) < 1e-9 || Math.abs(a[1] - b[1]) < 1e-9)) return false; if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-6) return false; if ((obs || []).some(r => hit(a, b, r))) return false; if (clashFn && clashFn(a, b)) return false; return true; };
+  const okPts = P => { for (let i = 1; i < P.length; i++) if (!okSeg(P[i - 1], P[i])) return false; return true; };
+  const TOL = 0.35;
+  // 预计算所有轴对齐边
+  const H = [], V = []; // H: {y,x0,x1}  V:{x,z0,z1}
+  (regs || []).forEach(r => { H.push({ y: r[1], x0: r[0], x1: r[2] }); H.push({ y: r[3], x0: r[0], x1: r[2] }); V.push({ x: r[0], z0: r[1], z1: r[3] }); V.push({ x: r[2], z0: r[1], z1: r[3] }); });
+  const covRun = (lo, hi, hz, P) => {
+    const a = P[lo], b = P[hi], len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 1e-6) return 1;
+    const N = Math.max(8, Math.ceil(len / 0.3)); let hitN = 0;
+    for (let k = 0; k <= N; k++) {
+      const t = k / N, x = a[0] + (b[0] - a[0]) * t, z = a[1] + (b[1] - a[1]) * t; let d = 1e9;
+      if (hz) H.forEach(e => { if (x >= e.x0 - 1e-6 && x <= e.x1 + 1e-6) d = Math.min(d, Math.abs(z - e.y)); });
+      else V.forEach(e => { if (z >= e.z0 - 1e-6 && z <= e.z1 + 1e-6) d = Math.min(d, Math.abs(x - e.x)); });
+      if (d > CL + TOL) { H.forEach(e => { const dx = x < e.x0 ? e.x0 - x : x > e.x1 ? x - e.x1 : 0; d = Math.min(d, Math.hypot(dx, z - e.y)); }); V.forEach(e => { const dz = z < e.z0 ? e.z0 - z : z > e.z1 ? z - e.z1 : 0; d = Math.min(d, Math.hypot(x - e.x, dz)); }); }
+      if (d <= CL + TOL) hitN++;
+    }
+    return hitN / (N + 1);
+  };
+  const runOf = (P, i) => { let lo = i - 1, hi = i; const hz = Math.abs(P[i - 1][1] - P[i][1]) < 1e-9;
+    while (lo > 0 && (hz ? Math.abs(P[lo][1] - P[lo - 1][1]) < 1e-9 : Math.abs(P[lo][0] - P[lo - 1][0]) < 1e-9)) lo--;
+    while (hi + 1 < P.length && (hz ? Math.abs(P[hi + 1][1] - P[hi][1]) < 1e-9 : Math.abs(P[hi + 1][0] - P[hi][0]) < 1e-9)) hi++;
+    return [lo, hi, hz]; };
+  let P = mergeCol(pts0.map(p => p.slice()));
+  for (let pass = 0; pass < 5; pass++) {
+    let moved = 0; const seen = new Set();
+    for (let i = 1; i < P.length; i++) {
+      let [lo, hi, hz] = runOf(P, i); const key = lo + ':' + hi; if (seen.has(key)) continue; seen.add(key);
+      if (lo === 0) lo++; if (hi === P.length - 1) hi--; // 端点接入段不平移,避免 noJack
+      if (hi - lo < 1) continue;
+      const a = P[lo], b = P[hi], len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < TH) continue;
+      const curCov = covRun(lo, hi, hz, P); if (curCov >= 0.85) continue; // 已经够贴
+      const t0 = hz ? Math.min(a[0], b[0]) : Math.min(a[1], b[1]), t1 = hz ? Math.max(a[0], b[0]) : Math.max(a[1], b[1]);
+      const cur = hz ? a[1] : a[0], span = t1 - t0;
+      // 候选:平行边外 CL,且投影重叠占行程 ≥ 30%
+      const cands = [];
+      if (hz) H.forEach(e => { const ov = Math.min(e.x1, t1) - Math.max(e.x0, t0); if (ov < 1.0) return; [e.y - CL, e.y + CL].forEach(v => cands.push(v)); });
+      else V.forEach(e => { const ov = Math.min(e.z1, t1) - Math.max(e.z0, t0); if (ov < 1.0) return; [e.x - CL, e.x + CL].forEach(v => cands.push(v)); });
+      let best = null, bestCov = curCov;
+      [...new Set(cands.map(v => +v.toFixed(4)))].forEach(v => {
+        if (Math.abs(v - cur) < 0.12) return;
+        const Q = P.map(p => p.slice()); for (let k = lo; k <= hi; k++) { if (hz) Q[k][1] = v; else Q[k][0] = v; }
+        const M = mergeCol(Q); if (!okPts(M)) return;
+        // 在 M 上重定位行程
+        const nlo = lo, nhi = Math.min(hi, M.length - 1);
+        // 简化后索引可能变,用坐标找
+        let lo2 = -1, hi2 = -1; for (let k = 0; k < M.length; k++) { const same = hz ? Math.abs(M[k][1] - v) < 1e-6 : Math.abs(M[k][0] - v) < 1e-6; if (same) { if (lo2 < 0) lo2 = k; hi2 = k; } }
+        if (lo2 < 0 || hi2 <= lo2) return;
+        const c = covRun(lo2, hi2, hz, M);
+        if (c > bestCov + 0.08) { bestCov = c; best = M; }
+      });
+      if (best) { P = best; moved++; }
+    }
+    if (!moved) break;
+  }
+  return P;
+}
+
 function simplifyPath(pts0, obs, clashFn) {
   /* 反复去台阶(Z)和 U 弯,直到折线不再变化。
      台阶:同向平行两段夹一段短偏移 → 优先整段对齐到外侧或内侧成为一条直线;
