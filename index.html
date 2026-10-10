@@ -4160,16 +4160,16 @@ const JIT = 0.11;              // 节点抖动幅度
 const PARAMS = {
   NODE_PITCH: 1.80,   // 组内节点中心间距
   CAR_PITCH: 2.25,    // 承载设备(交换机/防火墙)网格间距 = 节点间距 × 1.25(机型更大)
-  L3_PAD: 1.20,       // 最外圈节点中心 → 三级框边(四边相同、所有组相同)
+  L3_PAD: 1.00,       // 最外圈节点中心 → 三级框边(四边相同、所有组相同)
   L3_GAP: 1.15,       // 三级框之间的间隔(左右;前后再乘 Z_MUL)
-  L2_PAD: 0.75,       // 最外圈三级框/承载块 → 二级框边(四边相同)
-  L2_TOP: 0.90,       // 二级框顶边额外留给二级名字的高度(顶边 PAD = L2_PAD + L2_TOP)
+  L2_PAD: 0.55,       // 最外圈三级框/承载块 → 二级框边(四边相同)
+  L2_TOP: 0.75,       // 二级框顶边额外留给二级名字的高度(顶边 PAD = L2_PAD + L2_TOP)
   L2_CORNER: 0.55,    // 二级框角标臂长参考(几何贴边向内,不再外伸;保留参数供布局/验收引用)
-  L2_GAP: 2.20,       // 二级框之间的间隔(框边到框边,左右;前后再乘 Z_MUL)
-  L1_PAD: 1.20,       // 最外圈二级框/承载块 → 一级虚线框边(四边相同)
-  L1_GAP: 2.40,       // 一级虚线框之间的间隔(左右;前后再乘 Z_MUL)
-  DOMAIN_GAP: 4.50,   // 阵营A / 公共域 / 阵营B 之间的间隔
-  Z_MUL: 1.50,        // 前后(纵深)方向间隔倍数:等距视角下前排设备高度会挡到后排框,实测 1.3 时前后相邻三级框屏幕重叠 44 对,1.5 时为 0
+  L2_GAP: 1.80,       // 二级框之间的间隔(框边到框边,左右;前后再乘 Z_MUL)
+  L1_PAD: 1.00,       // 最外圈二级框/承载块 → 一级虚线框边(四边相同)
+  L1_GAP: 2.10,       // 一级虚线框之间的间隔(左右;前后再乘 Z_MUL)
+  DOMAIN_GAP: 2.50,   // 阵营A / 公共域 / 阵营B 之间的间隔
+  Z_MUL: 1.41,        // 前后(纵深)方向间隔倍数:等距视角下前排设备高度会挡到后排框,实测 1.3 时前后相邻三级框屏幕重叠 44 对,1.5 时为 0
   ROUTE_CLEAR: 0.60,  // 流向线与非端点区域(一级/二级/三级)轮廓的最小距离:障碍向外膨胀这么多,线贴着轮廓平行绕行
 };
 const HY = { DOM0: 0, DOM1: 0.30, ZONE1: 0.40, SUB1: 0.47, GRP1: 0.52, NODE_Y: 0.53, LINE_Y: 0.585 };
@@ -4916,17 +4916,22 @@ function layout(nodes, carriers, opt) {
     function cornerCov(rs) { let U0 = 1e9, U1 = -1e9, D0 = 1e9, D1 = -1e9;
       rs.forEach(r => [[r[0], r[1]], [r[2], r[1]], [r[0], r[3]], [r[2], r[3]]].forEach(([x, z]) => { const u = ca * x - sa * z, d = sa * x + ca * z; U0 = Math.min(U0, u); U1 = Math.max(U1, u); D0 = Math.min(D0, d); D1 = Math.max(D1, d); }));
       const cu = (TN.CU || 0.14) * (U1 - U0), cd = (TN.CD || 0.1) * (D1 - D0), N = 8, out = [];
-      [[U0, D0], [U1 - cu, D0], [U0, D1 - cd], [U1 - cu, D1 - cd]].forEach(([u0, d0]) => { let hit = 0;
+      const cuR = cu * (TN.CUR || 1), cdT = cd * (TN.CDT || 1);
+      [[U0, D0, cu, cdT], [U1 - cuR, D0, cuR, cdT], [U0, D1 - cd, cu, cd], [U1 - cuR, D1 - cd, cuR, cd]].forEach(([u0, d0, cu, cd]) => { let hit = 0;
         for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const u = u0 + (i + 0.5) / N * cu, d = d0 + (j + 0.5) / N * cd, x = ca * u + sa * d, z = -sa * u + ca * d; if (rs.some(r => x > r[0] && x < r[2] && z > r[1] && z < r[3])) hit++; }
         out.push(hit / (N * N)); });
       return out; }
     if (!TN.NOCORNER) {
-      const nC = COLS.length, D = sol.D * (1 + (TN.DS == null ? 0 : TN.DS)), Rs = COLS.map((c, t) => Object.assign(Rof(D, sol.xs[t][0], sol.xs[t][1], c.f), { side: c.side }));
-      const mid = []; let okMid = true; for (let t = 1; t < nC - 1; t++) { const r = runCol(COLS[t].seq, Rs[t], 0); if (!r) { okMid = false; break; } mid.push(...rectsOf(r.its)); }
-      const opt = t => { const o = []; for (let off = 0; off <= (TN.OFFMAX || 24); off += 1.5) { const r = runCol(COLS[t].seq, Rs[t], off); if (r) o.push({ off, rs: rectsOf(r.its) }); } return o; };
-      if (okMid) { const oA = opt(0), oB = opt(nC - 1); let best = null;
-        oA.forEach(a => oB.forEach(b => { const cv = cornerCov(a.rs.concat(mid, b.rs)), sc = Math.min(...cv) + 0.1 * cv.reduce((x, y) => x + y, 0); if (!best || sc > best.sc) best = { sc, cv, a: a.off, b: b.off }; }));
-        if (best) { sol.D = D; sol.offs = COLS.map((c, t) => t === 0 ? best.a : t === nC - 1 ? best.b : 0); BR.corner = best.cv; } } }
+      const nC = COLS.length, D00 = sol.D; let bestAll = null;
+      // 纵深缩放候选 × 两侧列偏移(步长 0.75):取四角覆盖最小值最大的一组(紧凑参数下四角更易空)
+      for (const ds of (TN.DS == null ? [0, 0.03, 0.06, 0.1] : [TN.DS])) {
+        const D = D00 * (1 + ds), Rs = COLS.map((c, t) => Object.assign(Rof(D, sol.xs[t][0], sol.xs[t][1], c.f), { side: c.side }));
+        const mid = []; let okMid = true; for (let t = 1; t < nC - 1; t++) { const r = runCol(COLS[t].seq, Rs[t], 0); if (!r) { okMid = false; break; } mid.push(...rectsOf(r.its)); }
+        const opt = t => { const o = []; for (let off = 0; off <= (TN.OFFMAX || 24); off += 0.75) { const r = runCol(COLS[t].seq, Rs[t], off); if (r) o.push({ off, rs: rectsOf(r.its) }); } return o; };
+        if (!okMid) continue; const oA = opt(0), oB = opt(nC - 1);
+        oA.forEach(a => oB.forEach(b => { const cv = cornerCov(a.rs.concat(mid, b.rs)), sc = Math.min(...cv) + 0.1 * cv.reduce((x, y) => x + y, 0) - 0.4 * ds; if (!bestAll || sc > bestAll.sc) bestAll = { sc, cv, a: a.off, b: b.off, D }; }));
+      }
+      if (bestAll) { sol.D = bestAll.D; sol.offs = COLS.map((c, t) => t === 0 ? bestAll.a : t === nC - 1 ? bestAll.b : 0); BR.corner = bestAll.cv; } }
     { const { D, xs } = sol; sol.cols = COLS.map((c, t) => { const R = Object.assign(Rof(D, xs[t][0], xs[t][1], c.f), { side: c.side }); let off = sol.offs[t] || 0;
         if (c.camp === 'P') { // 公共域竖带:内容在可用纵深里上下居中
           let offMax = 0; for (let st = 64; st >= 0.5; st /= 2) { while (runCol(c.seq, R, offMax + st)) offMax += st; }
@@ -5255,8 +5260,9 @@ function routeLinks(L, nodes, carriers, links, opt) {
         }
       };
       pin(o.S, true); pin(o.E, false); P = mergeCol(P);
+      P = simplifyPath(P, o._ob || [], (q, r) => others(o, q, r)); // 钉回端点后再拉直一次,去掉接入处的无意义 U/Z
       const trim = (atStart) => { const d = atStart ? o.S : o.E; const a = atStart ? P[0] : P[P.length - 1], b = atStart ? P[1] : P[P.length - 2]; const L2 = Math.hypot(b[0] - a[0], b[1] - a[1]), pad = d.f / 2 + 0.16; if (L2 > pad + 0.05) { const t = pad / L2, q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; if (atStart) P[0] = q; else P[P.length - 1] = q; } };
-      trim(true); trim(false); o.pts = mergeCol(P);
+      trim(true); trim(false); o.pts = simplifyPath(mergeCol(P), o._ob || [], (q, r) => others(o, q, r));
       delete o._ob; delete o._regs;
     });
   }
@@ -5452,7 +5458,7 @@ function simplifyPath(pts0, obs, clashFn) {
       best.slice(1).forEach(p => NP.push(p));
       P.slice(i + 4).forEach(p => NP.push(p));
       const M = mergeCol(NP);
-      if (okPath(M) && M.length < P.length) { P = M; changed = true; }
+      if (M.length < P.length) { P = M; changed = true; } // 新段已逐段校验;不再要求整条路径(端点接入 stub 可能本就落在端点区内)
     }
     // ---- 三点共线已由 mergeCol 处理;再扫一次把「极短中段」两侧同轴合并 ----
     if (!changed) {
@@ -5955,7 +5961,7 @@ carriers.forEach((c, i) => { const p = L.carriers[i]; devices.push({ i, car: tru
 }
 devices.forEach((d, j) => { d.j = j; const s = RM.build(d.style); d.foot = s.style.foot; d.H = s.style.H; d.box = s.box; });
 const gNodes = new T.Group(), gCarr = new T.Group(); gCarr.userData.isCarrier = true; scene.add(gNodes, gCarr);
-const pools = []; const M4 = new T.Matrix4(), C1 = new T.Color();
+const pools = [], fxPools = []; const M4 = new T.Matrix4(), C1 = new T.Color();
 function buildPools(list, parent, isCar) {
   const byStyle = {}; list.forEach(d => (byStyle[d.style] = byStyle[d.style] || []).push(d));
   Object.keys(byStyle).forEach(st => {
@@ -5990,7 +5996,7 @@ const nodeDevs = devices.filter(d => !d.car), tgtDevs = nodeDevs.filter(d => d.i
 function fxPool(geo, list, mat, y, sc, ro, parent) {
   const im = new T.InstancedMesh(geo, mat, list.length);
   list.forEach((d, k) => { const s = sc(d); M4.makeScale(s, 1, s).setPosition(d.x, y(d), d.z); im.setMatrixAt(k, M4); im.setColorAt(k, C1.setRGB(1, 1, 1)); });
-  im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); im.renderOrder = ro; im.userData.order = list.map(d => d.j); im.userData.kind = "fx"; im.userData.yFn = y; im.userData.scFn = sc; (parent || gNodes).add(im); return im;
+  im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); im.renderOrder = ro; im.userData.order = list.map(d => d.j); im.userData.kind = "fx"; im.userData.yFn = y; im.userData.scFn = sc; (parent || gNodes).add(im); fxPools.push(im); return im;
 }
 const ringN = fxPool(ringGeo, nodeDevs, fxMat({ alpha: 0.5 }), () => HY.NODE_Y + 0.006, d => d.foot * 1.02, 7);
 nodeDevs.forEach((d, k) => ringN.setColorAt(k, lin(DOMC[d.dom]))); ringN.instanceColor.needsUpdate = true;
@@ -6383,14 +6389,14 @@ window.__dayAudit = () => { const bg = new T.Color(DAYBG_HEX), out = { lines: []
   return out; };
 function syncDevices() {
   devices.forEach(d => { const p = d.car ? L.carriers[d.i] : L.nodes[d.i]; d.x = p.x; d.z = p.z; });
-  pools.forEach(im => {
+  pools.concat(fxPools).forEach(im => { // 设备本体 + 脚下光环/靶标环/发光核心:分散值任意(含 0)都随节点一起移动
     (im.userData.order || []).forEach((j, k) => {
       const d = devices[j];
       if (im.userData.kind === 'fx') { const sc = im.userData.scFn(d); M4.makeScale(sc, 1, sc).setPosition(d.x, im.userData.yFn(d), d.z); }
       else M4.makeTranslation(d.x, HY.NODE_Y, d.z);
       im.setMatrixAt(k, M4);
     });
-    im.instanceMatrix.needsUpdate = true;
+    im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere();
   });
   if (edgesN) { gNodes.remove(edgesN); edgesN.geometry.dispose(); }
   if (edgesC) { gCarr.remove(edgesC); edgesC.geometry.dispose(); }
@@ -6427,6 +6433,11 @@ function applyDisp(v, persist) {
   applyState();
 }
 window.__setSpread = applyDisp;
+window.__decoCheck = () => { const m = new T.Matrix4(), v = new V3(); let max = 0, n = 0, worst = '';
+  pools.concat(fxPools).forEach(im => (im.userData.order || []).forEach((j, k) => { const d = devices[j]; im.getMatrixAt(k, m); v.setFromMatrixPosition(m); const e = Math.hypot(v.x - d.x, v.z - d.z); n++; if (e > max) { max = e; worst = (im.userData.kind || '') + ':' + d.name; } }));
+  devices.forEach(d => { if (!d.lbl) return; const e = Math.hypot(d.lbl.wp.x - d.x, d.lbl.wp.z - d.z); n++; if (e > max) { max = e; worst = 'label:' + d.name; } });
+  devices.forEach(d => { const p = d.car ? L.carriers[d.i] : L.nodes[d.i]; const e = Math.hypot(p.x - d.x, p.z - d.z); n++; if (e > max) { max = e; worst = 'pick:' + d.name; } });
+  return { n, maxErr: +max.toFixed(5), worst, fxPools: fxPools.length }; };
 {
   const sp0 = readSpread();
   const sl = $('#spread'); if (sl) sl.value = String(sp0);
