@@ -136,6 +136,11 @@ body.day .lbl-zone{color:#0F172A!important;background:rgba(248,250,252,.94);bord
 body.day .chip.on{box-shadow:inset 0 0 0 1px #334155}
 body.day #legend,body.day #title,body.day #panel{border-color:#CBD5E1}
 body.day .lbl-zone small,body.day .stats b,body.day #fCnt b{color:#0F172A!important}
+body.day .lbl-sub,body.day .lbl-grp,body.day .lbl-node,body.day .lbl-car,body.day .lbl-dom,body.day .lbl-zone{background:#F8FAFC!important;box-shadow:0 0 0 1px #94A3B8!important;border-color:#94A3B8!important}
+body.day .lbl-car{font-size:10.5px;line-height:14px}body.day .lbl-car em{opacity:1;color:#334155}
+body.day .lbl-node.t{color:#B4233F!important}body.day .lbl-node.t::before{color:#B4233F;text-shadow:0 0 0 #fff,-1px 0 #fff,1px 0 #fff,0 -1px #fff,0 1px #fff}
+body.day #legend{background:rgba(248,250,252,.96);border-color:#94A3B8;color:#0F172A}
+body.day .zlegend .zr b{filter:none}
 </style>
 </head>
 <body>
@@ -5583,6 +5588,7 @@ const HY = RL.HY;
 /* ---------- 调色板(与参考工程一致) ---------- */
 /* Archify 语义色:frontend 青 / backend 绿 / database 紫 / cloud 琥珀 / security 玫红 / messagebus 橙 / external 灰 */
 const ARC = { canvas: '#020617', mask: '#0F172A', border: '#1E293B', ink: '#FFFFFF', muted: '#94A3B8', dim: '#475569', frontend: '#22D3EE', backend: '#34D399', database: '#A78BFA', cloud: '#FBBF24', security: '#FB7185', messagebus: '#FB923C', external: '#94A3B8' };
+const PAL_TD = '#B4233F'; // 日间靶标
 const PAL = { atk: '#D9546A', def: ARC.frontend, ok: ARC.backend, warn: '#D9546A', info: ARC.external, vio: ARC.database, bus: ARC.messagebus, cloud: ARC.cloud };
 const DOMC = { '公共域': '#7A868A', '阵营A「零日」': '#5A7BC4', '阵营B「溢出」': '#C0565A' }; // Unity 蓝色阵营 #0000FF / 作战区红 #D40000 提亮以便夜/日可读
 /* 区域底色:阵营分色相,同阵营内的一级区域(公共域按二级子区)再错开明度,半透明、不进辉光 */
@@ -5593,13 +5599,26 @@ const ZCOL = {
   // 公共域:Unity「未上线-区域」灰 + 「通用透明区域」青灰
   '公共域': { '互联网用户模拟子区': '#B8C4C8', '公网接入子区': '#9AA8AC', '公共基础服务子区': '#7A868A', '企业业务平台子区': '#6B7B80', '流量仿真子区': '#A9B8BC', '公共互联网区': '#8FA3A8' },
 };
+/* ---------- 日间配色:按 WCAG 对比度(相对日间底 #E2E8F0)逐步加深,保证线 ≥3、字 ≥4.5 ---------- */
+const DAYBG_HEX = '#E2E8F0';
+function relLum(c) { const h = c.getHexString(), f = i => { const v = parseInt(h.slice(i, i + 2), 16) / 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(0) + 0.7152 * f(2) + 0.0722 * f(4); } // WCAG 相对亮度(按 sRGB 十六进制)
+function crOf(a, b) { const x = relLum(a), y = relLum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+function dayTone(hex, minCR, t0) { const bg = new T.Color(DAYBG_HEX), ink = new T.Color('#0F172A'); let c = new T.Color(hex);
+  for (let t = t0 || 0; t <= 0.92; t += 0.02) { c = new T.Color(hex).lerp(ink, t); if (crOf(c, bg) >= minCR) break; } return c; }
+const dayHex = (hex, minCR, t0) => '#' + dayTone(hex, minCR, t0).getHexString().toUpperCase();
+/* 主题相关的 HTML 颜色:CSS 变量,夜间原色、日间加深色 */
+const TC = {}; let tcStyle = null;
+function tcx(n, d) { const k = 'tc' + (n + d).replace(/#/g, ''); if (!TC[k]) { TC[k] = [n, d]; if (!tcStyle) { tcStyle = document.createElement('style'); document.head.appendChild(tcStyle); } tcStyle.textContent = ':root{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][0]).join(';') + '}body.day{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][1]).join(';') + '}'; } return 'var(--' + k + ')'; }
+const tc = (hex, minCR) => tcx(hex, dayHex(hex, minCR || 3.2, 0.3));
 function areaColor(dom, zone, sub) {
   const m = ZCOL[dom] || {};
   if (dom === '公共域') return m[sub] || m[zone] || DOMC[dom];
   return m[zone] || DOMC[dom];
 }
 const DOMK = { '公共域': 'pub', '阵营A「零日」': 'za', '阵营B「溢出」': 'yb' };
-const LINKC = { trunk: '#3F9A6B', mgmt: '#4F8FC0', cross: '#C86A4A' };
+const LINKC = { trunk: '#3F9A6B', mgmt: '#4F8FC0', cross: '#B5603F' };
+const LINKD = { trunk: '#2E6B4D', mgmt: '#3A6A92', cross: '#9E4A36' }; // 日间线色
+const LKV = g => tcx(LINKC[g], LINKD[g]);
 const LINKN = { trunk: '主干', mgmt: '管理·安全', cross: '跨阵营' };
 const CARC = ARC.muted;
 const FLOWS = {
@@ -5678,7 +5697,7 @@ const CC = new T.Vector2((CB.x0 + CB.x1) / 2, (CB.z0 + CB.z1) / 2), CW = CB.x1 -
     uniforms: { uC: { value: new T.Vector2(CC.x, CC.y) }, uSpan: { value: new T.Vector2(Math.max(CW, 40), Math.max(CD, 40)) }, uTime: U.uTime, uDay: { value: 0 } },
     transparent: true, depthWrite: false, blending: T.AdditiveBlending,
     vertexShader: 'varying vec3 vW;void main(){vec4 w=modelMatrix*vec4(position,1.);vW=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;}',
-    fragmentShader: 'varying vec3 vW;uniform vec2 uC,uSpan;uniform float uTime,uDay;void main(){vec2 p=vW.xz-uC;vec2 g=abs(fract(p-.5)-.5)/fwidth(p);float l=1.-min(min(g.x,g.y),1.);vec2 g2=abs(fract(p/5.-.5)-.5)/fwidth(p/5.);float l2=1.-min(min(g2.x,g2.y),1.);float d=length(p/uSpan);float f=exp(-d*d*2.2);float line=l*.55+l2*.85;vec3 night=vec3(.2,.27,.38)*(l*.2+l2*.42)*f;vec4 day=vec4(vec3(.39,.45,.55), line*f*.8);gl_FragColor=mix(vec4(night,1.), day, uDay);}',
+    fragmentShader: 'varying vec3 vW;uniform vec2 uC,uSpan;uniform float uTime,uDay;void main(){vec2 p=vW.xz-uC;vec2 g=abs(fract(p-.5)-.5)/fwidth(p);float l=1.-min(min(g.x,g.y),1.);vec2 g2=abs(fract(p/5.-.5)-.5)/fwidth(p/5.);float l2=1.-min(min(g2.x,g2.y),1.);float d=length(p/uSpan);float f=exp(-d*d*2.2);float line=l*.55+l2*.85;vec3 night=vec3(.2,.27,.38)*(l*.2+l2*.42)*f;vec4 day=vec4(vec3(.58,.64,.72), l2*f*.3);gl_FragColor=mix(vec4(night,1.), day, uDay);}',
   }));
   grid.rotation.x = -Math.PI / 2; grid.position.set(CC.x, -0.01, CC.y); grid.renderOrder = 0; scene.add(grid);
   groundGrid = grid;
@@ -5805,7 +5824,7 @@ Object.keys(subSeen).forEach(k => {
   const lp = [x0, 0.02, z0, x1, 0.02, z0, x1, 0.02, z1, x0, 0.02, z1, x0, 0.02, z0];
   const lg = new T.BufferGeometry(); lg.setAttribute('position', new T.Float32BufferAttribute(lp, 3));
   const edgeNight = lin(s2.hex).multiplyScalar(0.92);
-  const edgeDay = lin(s2.hex).clone().lerp(lin('#0F172A'), 0.48);
+  const edgeDay = dayTone(s2.hex, 3.4, 0.48);
   const edgeMat = new T.LineBasicMaterial({ color: edgeNight, transparent: true, opacity: 0.62, depthWrite: false });
   edgeMat.userData = { night: edgeNight, day: edgeDay };
   const line = new T.Line(lg, edgeMat);
@@ -5822,7 +5841,7 @@ Object.keys(subSeen).forEach(k => {
   window.__frames.l2[window.__frames.l2.length - 1].corners = segs;
   const cg = new T.BufferGeometry(); cg.setAttribute('position', new T.Float32BufferAttribute(cb, 3));
   const cNight = lin(s2.hex).clone().lerp(lin('#FFFFFF'), 0.08);
-  const cDay = lin(s2.hex).clone().lerp(lin('#0F172A'), 0.32);
+  const cDay = dayTone(s2.hex, 3.6, 0.32);
   const cMat = new T.LineBasicMaterial({ color: cNight, transparent: true, opacity: 1, depthWrite: false });
   cMat.userData = { night: cNight, day: cDay };
   const corners = new T.LineSegments(cg, cMat);
@@ -5853,7 +5872,8 @@ Object.keys(zoneSeen).forEach(zk => {
   g.setAttribute('position', new T.Float32BufferAttribute(ring, 3));
   const hex = DOMC[z.dom] || ARC.external;
   const night = lin(hex);
-  const day = lin(hex).clone().lerp(lin('#0F172A'), 0.55);
+  const zHex = (ZCOL[z.dom] && ZCOL[z.dom][zk.split('\0')[1]]) || hex; // 日间:一级虚线按区域色相着色
+  const day = dayTone(zHex, 3.6, 0.5);
   const m = new T.LineDashedMaterial({ color: night, dashSize: 0.85, gapSize: 0.55, transparent: true, opacity: 0.88, depthWrite: false });
   m.userData = { night: night, day: day };
   const line = new T.Line(g, m);
@@ -5870,7 +5890,7 @@ areaRects.forEach(b => {
   const lp = [x0, 0.034, z0, x1, 0.034, z0, x1, 0.034, z1, x0, 0.034, z1, x0, 0.034, z0];
   const lg = new T.BufferGeometry(); lg.setAttribute('position', new T.Float32BufferAttribute(lp, 3));
   const dim = col.clone().multiplyScalar(0.95);
-  const dayC = col.clone().lerp(lin('#0F172A'), 0.38);
+  const dayC = dayTone(b.hex, 3.2, 0.38);
   const line = new T.Line(lg, new T.LineBasicMaterial({ color: dim, transparent: true, opacity: 0.72, depthWrite: false }));
   line.renderOrder = 6; gBoards.add(line);
   const w = b.x1 - b.x0, h = b.z1 - b.z0;
@@ -5901,7 +5921,9 @@ function devMat(cat, role) {
   const main = lin(RM.CAT[cat].main);
   const rimK = { body: 0.9, face: 0.55, base: 0.25, port: 0.15, led: 0, detail: 0.35 }[role];
   const m = new T.ShaderMaterial({ uniforms: { uColor: { value: lin(RM.colorFor(cat, role)).multiplyScalar(role === 'led' ? 1.3 : role === 'face' ? 0.95 : 1.25) }, uRim: { value: main }, uRimK: { value: rimK }, uLam: { value: role === 'led' ? 0 : 1 } }, vertexShader: VS_DEV, fragmentShader: FS_DEV });
-  m.userData = { cat, role }; return (matCache[k] = m);
+  const nC = m.uniforms.uColor.value.clone();
+  const dC = role === 'body' ? main.clone().multiplyScalar(0.6) : role === 'face' ? main.clone().multiplyScalar(0.85) : nC.clone();
+  m.userData = { cat, role, night: nC, day: dC }; return (matCache[k] = m);
 }
 const devices = []; // 统一:0..799 节点,800.. 承载
 nodes.forEach((n, i) => { const p = L.nodes[i]; devices.push({ i, car: false, x: p.x, z: p.z, style: n['3D样式代码'], cat: n['3D样式大类'], isT: n['是否靶标'] === '是', dom: n['域'], zone: n['一级区域'], sub: n['二级子区'], grp: n['三级节点组'], name: n['节点名称'], cn: n['中文名·用途'], d: n, k: 1 }); });
@@ -6015,22 +6037,25 @@ R.links.forEach((r, k) => {
   const y = 0.058 + (k % 3) * 0.006;
   const p2 = L.spread ? r.pts : RL.roundPath(r.pts, 0.42, 0.08), p3 = p2.map(p => new V3(p[0], y, p[1]));
   const cv = new PolyCurve(p3);
-  const rMain = grp === 'mgmt' ? 0.05 : grp === 'cross' ? 0.07 : 0.065; // 约为上一版 0.108/0.151 的 45%
+  const rMain = (grp === 'mgmt' ? 0.05 : grp === 'cross' ? 0.07 : 0.065) * (document.body.classList.contains('day') ? 1.4 : 1); // 日间加粗 40%
   const mk = (r0) => { const m = new T.ShaderMaterial({ uniforms: { uLane: { value: col.clone() }, uHot: { value: col.clone() }, uLen: { value: cv.len }, uTime: U.uTime, uSpeed: { value: grp === 'cross' ? 2.2 : 1.6 }, uDash: { value: 1.05 }, uGap: { value: 1.55 }, uAlpha: { value: 0.9 }, uLaneA: { value: 0.42 }, uHotA: { value: 1 } }, vertexShader: tubeVS, fragmentShader: tubeFS, transparent: true, depthWrite: false, blending: T.AdditiveBlending });
     const me = new T.Mesh(straightTube(p3, r0, cv.c, cv.len), m); me.renderOrder = 10; gLinks.add(me); return me; };
   const main = mk(rMain), halo = mk(rMain * 1.65);
   const extra = [];
   const amat = new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, blending: T.AdditiveBlending, depthWrite: false });
-  [0.5, 0.93].forEach(u => { const c = new T.Mesh(new T.ConeGeometry(0.1, 0.23, 8), amat); c.position.copy(cv.getPoint(u)); c.quaternion.setFromUnitVectors(new V3(0, 1, 0), cv.getTangentAt(u)); c.renderOrder = 11; gLinks.add(c); extra.push(c); });
+  const omat = new T.MeshBasicMaterial({ color: 0x0F172A, side: T.BackSide, transparent: true, opacity: 0.9, depthWrite: false });
+  const dayA = document.body.classList.contains('day'), aS = dayA ? 1.3 : 1;
+  [0.5, 0.93].forEach(u => { const c = new T.Mesh(new T.ConeGeometry(0.1 * aS, 0.23 * aS, 8), amat); c.position.copy(cv.getPoint(u)); c.quaternion.setFromUnitVectors(new V3(0, 1, 0), cv.getTangentAt(u)); c.renderOrder = 11; gLinks.add(c); extra.push(c);
+    if (dayA) { const o = new T.Mesh(new T.ConeGeometry(0.1 * aS * 1.35, 0.23 * aS * 1.3, 8), omat); o.position.copy(c.position); o.quaternion.copy(c.quaternion); o.renderOrder = 10; o.userData.arrowOutline = true; gLinks.add(o); extra.push(o); } });
   const jmat = new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, blending: T.AdditiveBlending, depthWrite: false });
   [p3[0], p3[p3.length - 1]].forEach(p => { const s = new T.Mesh(new T.SphereGeometry(0.075, 10, 7), jmat); s.position.copy(p); s.renderOrder = 11; gLinks.add(s); extra.push(s); });
-  LK.push({ id: r.id, k, lk, grp, flow: lk['流向编号'], col, hot: col.clone(), cv, pts2: p2, y, main, halo, extra, amat, jmat, S: devices[r.S.car ? 800 + r.S.i : r.S.i], E: devices[r.E.car ? 800 + r.E.i : r.E.i], rMain, a: 1, nPk: Math.max(2, Math.round(cv.len / 9)) });
+  LK.push({ omat, id: r.id, k, lk, grp, flow: lk['流向编号'], col, hot: col.clone(), cv, pts2: p2, y, main, halo, extra, amat, jmat, S: devices[r.S.car ? 800 + r.S.i : r.S.i], E: devices[r.E.car ? 800 + r.E.i : r.E.i], rMain, a: 1, nPk: Math.max(2, Math.round(cv.len / 9)) });
 });
   applyLinkLook(document.body.classList.contains('day'));
 }
 buildLinks();
 function applyLinkLook(day) {
-  const C = { trunk: { laneN: '#3F9A6B', hotN: '#7CC4C0', laneD: '#2E6B4D', hotD: '#3A7F74' }, mgmt: { laneN: '#4F8FC0', hotN: '#9CC0DE', laneD: '#3A6A92', hotD: '#44779F' }, cross: { laneN: '#C86A4A', hotN: '#E0A080', laneD: '#B91C1C', hotD: '#DC2626' } }; // Unity 网络路径 / 安全设备蓝 / 攻击路径
+  const C = { trunk: { laneN: '#3F9A6B', hotN: '#7CC4C0', laneD: '#2E6B4D', hotD: '#3A7F74' }, mgmt: { laneN: '#4F8FC0', hotN: '#9CC0DE', laneD: '#3A6A92', hotD: '#44779F' }, cross: { laneN: '#B5603F', hotN: '#D08A6A', laneD: '#9E4A36', hotD: '#B5603F' } }; // Unity 网络路径 / 安全设备蓝 / 攻击路径
   LK.forEach(l => {
     const c = C[l.grp] || C.trunk;
     const lane = lin(day ? c.laneD : c.laneN), hot = lin(day ? c.hotD : c.hotN);
@@ -6172,12 +6197,13 @@ function applyState() {
   pools.forEach(setPool);
   const tint = (im, f) => { const o = im.userData.order; for (let i = 0; i < o.length; i++) { const d = devices[o[i]]; f(d, C1); im.setColorAt(i, C1); } im.instanceColor.needsUpdate = true; };
   const kk = d => Math.min(1.6, d.k);
-  tint(ringN, (d, c) => c.copy(lin(d.isT ? PAL.warn : DOMC[d.dom])).multiplyScalar((d.isT ? 0.95 : 0.55) * kk(d)));
-  tint(arcT, (d, c) => c.copy(lin(PAL.warn)).multiplyScalar(0.9 * kk(d)));
-  tint(coreT, (d, c) => c.copy(lin(PAL.warn)).multiplyScalar(1.0 * kk(d)));
+  const TW = dayOn0 => dayOn0 ? PAL_TD : PAL.warn; const isDay = document.body.classList.contains('day');
+  tint(ringN, (d, c) => c.copy(lin(d.isT ? TW(isDay) : DOMC[d.dom])).multiplyScalar((d.isT ? 0.95 : 0.55) * kk(d)));
+  tint(arcT, (d, c) => c.copy(lin(TW(isDay))).multiplyScalar(0.9 * kk(d)));
+  tint(coreT, (d, c) => c.copy(lin(TW(isDay))).multiplyScalar(1.0 * kk(d)));
   tint(ringC, (d, c) => c.copy(lin(CARC)).multiplyScalar(0.45 * kk(d)));
   [[edgesN, false], [edgesC, true]].forEach(([ls, car]) => { const a = ls.geometry.attributes.color.array; devices.forEach(d => { if (d.car !== car) return; const c = lin(d.isT ? PAL.warn : (car ? CARC : RM.CAT[d.cat].main)).multiplyScalar((d.isT ? 0.55 : 0.42) * kk(d)); for (let i = d.e0; i < d.e1; i++) { a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; } }); ls.geometry.attributes.color.needsUpdate = true; });
-  LK.forEach(l => { const on = !act.length || act.includes(l); l.a = on ? 1 : 0.08; l.main.material.uniforms.uAlpha.value = (act.includes(l) ? 1.25 : 0.85) * l.a; l.halo.material.uniforms.uAlpha.value = 0.2 * l.a * (act.includes(l) ? 1.8 : 1); l.amat.opacity = 0.95 * l.a; l.jmat.opacity = 0.95 * l.a; });
+  LK.forEach(l => { const on = !act.length || act.includes(l); l.a = on ? 1 : 0.08; l.main.material.uniforms.uAlpha.value = (act.includes(l) ? 1.25 : 0.85) * l.a; l.halo.material.uniforms.uAlpha.value = 0.2 * l.a * (act.includes(l) ? 1.8 : 1); { const dy = document.body.classList.contains('day'), hu = l.halo.material.uniforms; if (dy) { hu.uLaneA.value = act.includes(l) ? 0.55 : 0; hu.uHotA.value = act.includes(l) ? 0.9 : 0; hu.uAlpha.value = act.includes(l) ? 1 : 0; if (act.includes(l)) l.main.material.uniforms.uAlpha.value = 1.35; } } if (l.omat) l.omat.opacity = 0.9 * l.a; l.amat.opacity = 0.95 * l.a; l.jmat.opacity = 0.95 * l.a; });
   if (sel) { const s = sel.foot + 0.16, h = sel.H + 0.14; selBox.scale.set(s, h, s); selBox.position.set(sel.x, HY.NODE_Y + h / 2 - 0.02, sel.z); selBox.material.color.set(sel.isT ? PAL.warn : PAL.def); selBox.visible = true;
     selRing.position.set(sel.x, HY.NODE_Y + 0.01, sel.z); selRing.scale.setScalar(sel.foot * 1.2); selRing.material.color.set(sel.isT ? PAL.warn : PAL.def); selRing.visible = true; }
   else { selBox.visible = false; selRing.visible = false; }
@@ -6186,7 +6212,7 @@ function applyState() {
   grpMark.forEach(m => {
     const on = !!(sel && !sel.car && m.dom === sel.dom && m.zone === sel.zone && m.sub === sel.sub && m.name === sel.grp);
     m.fill.material.opacity = on ? 0.2 : 0.022;
-    m.line.material.opacity = on ? 1 : (dayOn ? 0.9 : 0.85);
+    m.line.material.opacity = on ? 1 : (dayOn ? 1 : 0.85);
     m.line.material.color.copy(on ? lin(DOMC[m.dom]) : (dayOn ? m.day : m.dim));
     if (on) window.__grpOn = m.dom + '/' + m.name;
   });
@@ -6229,6 +6255,9 @@ function updateLabels() {
   const hit = (x0, y0, x1, y1) => { for (let gx = Math.floor(x0 / CELL); gx <= Math.floor(x1 / CELL); gx++) for (let gy = Math.floor(y0 / CELL); gy <= Math.floor(y1 / CELL); gy++) { const a = occ.get(gx * 4096 + gy); if (a) for (const r of a) if (x0 < r[2] && x1 > r[0] && y0 < r[3] && y1 > r[1]) return true; } return false; };
   const place = (l, show, x, y) => { if (show) { const tr = l.anchor === 'lt' ? '' : l.anchor === 'rt' ? ' translate(-100%,0)' : l.anchor === 'lb' ? ' translate(0,-100%)' : ' translate(-50%,-100%)'; l.el.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)' + tr; } if (show !== l.shown) { l.el.style.display = show ? 'block' : 'none'; l.shown = show; } };
   const zoomed = C.ppu > C.fitPPU * 1.35;
+  // 真实尺寸(首次显示时量一次,换主题后重量),替代估算宽高,避免标题互压
+  const msz = l => { if (!l.mw) { const d0 = l.el.style.display; if (d0 === 'none' || !d0) l.el.style.display = 'block'; l.mw = l.el.offsetWidth || 40; l.mh = l.el.offsetHeight || 14; if (d0 === 'none' || !d0) l.el.style.display = d0; } return [l.mw, l.mh]; };
+  const boxOf = (l, s) => { const [w, h] = msz(l); const a = l.anchor; const x0 = a === 'lt' || a === 'lb' ? s[0] : a === 'rt' ? s[0] - w : s[0] - w / 2; const y0 = a === 'lt' || a === 'rt' ? s[1] : s[1] - h; return [x0 - 2, y0 - 1, x0 + w + 2, y0 + h + 1]; };
   // 近景:相邻设备间距 ≥ NEAR_PX 像素时,视野内全部设备名常显(不去重);组/子区名让位
   const near = (L.pitch || 1.8) * C.ppu >= NEAR_PX;
   if (near) {
@@ -6236,7 +6265,7 @@ function updateLabels() {
     devLbls.forEach(l => { const d = l.dev;
       const on = d.car ? (S.showCar && LBLON.car && d.k > 0.2) : (LBLON.node && (d.k >= 0.5 || d === sel0));
       if (!on) { place(l, false); return; }
-      const s = screenOf(l.wp.x, l.wp.y, l.wp.z); const x0 = s[0] - l.w / 2, y0 = s[1] - l.h, x1 = s[0] + l.w / 2, y1 = s[1];
+      const s = screenOf(l.wp.x, l.wp.y, l.wp.z); const bb = boxOf(l, s), x0 = bb[0], y0 = bb[1], x1 = bb[2], y1 = bb[3];
       if (x1 < 0 || x0 > W || y1 < 0 || y0 > H) { place(l, false); return; }
       occupy(x0, y0, x1, y1); place(l, true, s[0], s[1]); if (!d.car) shown++; });
     LBL.filter(l => l.kind === 'dom' || l.kind === 'zone').forEach(l => placeHeadNear(l));
@@ -6246,8 +6275,7 @@ function updateLabels() {
     return;
   }
   function placeHeadNear(l) { let on = LBLON[l.kind]; if (l.dom && S.dom && l.dom !== S.dom) on = on && l.kind === 'dom'; if (!on) { place(l, false); return; }
-    const s = screenOf(l.wp.x, l.wp.y, l.wp.z); const w = l.kind === 'dom' ? 168 : l.kind === 'zone' ? 92 : l.kind === 'sub' ? 72 : Math.max(44, (l.el.textContent || '').length * 11); const h = l.kind === 'dom' ? 36 : l.kind === 'zone' ? 22 : 14;
-    const x0 = s[0] - w / 2, y0 = s[1] - h; if (s[0] < -20 || s[0] > W - 10 || s[1] < 36 || s[1] > H - 8 || hit(x0, y0, x0 + w, y0 + h)) { place(l, false); return; } occupy(x0, y0, x0 + w, y0 + h); place(l, true, s[0], s[1]); }
+    const s = screenOf(l.wp.x, l.wp.y, l.wp.z); const b = boxOf(l, s); if (s[0] < -20 || s[0] > W - 10 || s[1] < 36 || s[1] > H - 8 || hit(b[0], b[1], b[2], b[3])) { place(l, false); return; } occupy(b[0], b[1], b[2], b[3]); place(l, true, s[0], s[1]); }
   const heads = LBL.filter(l => l.kind !== 'node').sort((a, b) => (['dom', 'zone', 'sub', 'grp', 'car'].indexOf(a.kind) - ['dom', 'zone', 'sub', 'grp', 'car'].indexOf(b.kind)));
   const placeHead = (l, reserve) => {
     let on = LBLON[l.kind]; if (l.kind === 'car') on = on && S.showCar && l.dev.k > 0.2; if (l.dom && S.dom && l.dom !== S.dom) on = on && l.kind === 'dom';
@@ -6255,11 +6283,9 @@ function updateLabels() {
     if (!on) { place(l, false); return; }
     const s = screenOf(l.wp.x, l.wp.y, l.wp.z); const vis = s[0] > -20 && s[0] < W - 10 && s[1] > 36 && s[1] < H - 8;
     if (!vis) { place(l, false); return; }
-    const w = l.kind === 'dom' ? 168 : l.kind === 'zone' ? 92 : l.kind === 'sub' ? 72 : Math.max(44, (l.el.textContent || '').length * 11);
-    const h = l.kind === 'dom' ? 36 : l.kind === 'zone' ? 22 : 14;
-    const x0 = s[0] - w / 2, y0 = s[1] - h;
-    if (l.kind !== 'dom' && hit(x0, y0, x0 + w, y0 + h)) { place(l, false); return; }
-    occupy(x0, y0, x0 + w, y0 + h); place(l, true, s[0], s[1]);
+    const b = boxOf(l, s);
+    if (hit(b[0], b[1], b[2], b[3])) { place(l, false); return; }
+    occupy(b[0], b[1], b[2], b[3]); place(l, true, s[0], s[1]);
   };
   heads.forEach(l => { if (l.kind === 'grp' || l.kind === 'sub') return; placeHead(l, true); });
   if (zoomed) heads.forEach(l => { if (l.kind === 'sub') placeHead(l, true); }); // 拉近:子区名先占位,节点名其次,组名最后补空
@@ -6268,7 +6294,7 @@ function updateLabels() {
   const minPri = C.ppu < C.fitPPU * 1.45 ? 2 : (C.ppu < C.fitPPU * 2.2 ? 1 : 0); // 全景只给靶标/网络安全设备,拉近后逐级放开
   order.forEach(l => {
     const d = l.dev; if (!LBLON.node || (d.k < 0.5 && d !== sel) || (l.pri < minPri && d !== sel && !(S.q && d.k >= 1))) { place(l, false); return; }
-    const s = screenOf(l.wp.x, l.wp.y, l.wp.z); const x0 = s[0] - l.w / 2, y0 = s[1] - l.h, x1 = s[0] + l.w / 2, y1 = s[1];
+    const s = screenOf(l.wp.x, l.wp.y, l.wp.z); const bb = boxOf(l, s), x0 = bb[0], y0 = bb[1], x1 = bb[2], y1 = bb[3];
     if (x1 < 0 || x0 > W || y1 < 0 || y0 > H || hit(x0 - 4, y0 - 1, x1 + 4, y1 + 1)) { place(l, false); return; }
     occupy(x0 - 4, y0 - 1, x1 + 4, y1 + 1); place(l, true, s[0], s[1]); shown++;
   });
@@ -6282,7 +6308,7 @@ const CATS = Object.keys(RM.CAT);
 function chip(label, attrs, color) { return '<span class="chip" ' + attrs + (color ? ' style="color:' + color + '"' : '') + '>' + label + '</span>'; }
 $('#fDom').innerHTML = chip('全部域', 'data-dom=""') + Object.keys(DOMC).map(d => chip(d.replace('「', ' 「').replace(/^(阵营[AB]) /, '$1'), 'data-dom="' + d + '"', DOMC[d])).join('');
 $('#fCat').innerHTML = chip('全部大类', 'data-cat=""') + CATS.map(c => chip(c + ' <b>' + nodes.filter(n => n['3D样式大类'] === c).length + '</b>', 'data-cat="' + c + '"', RM.CAT[c].main)).join('');
-$('#fFlow').innerHTML = Object.keys(FLOWS).map(f => { const g = LK.find(l => l.flow === f); return chip(f, 'data-flow="' + f + '" title="' + FLOWS[f][0] + '"', g ? LINKC[g.grp] : '#cfe'); }).join('');
+$('#fFlow').innerHTML = Object.keys(FLOWS).map(f => { const g = LK.find(l => l.flow === f); return chip(f, 'data-flow="' + f + '" title="' + FLOWS[f][0] + '"', g ? LKV(g.grp) : '#cfe'); }).join('');
 const syncChips = () => {
   document.querySelectorAll('[data-dom]').forEach(c => c.classList.toggle('on', (c.dataset.dom || null) === S.dom)); document.querySelectorAll('[data-cat]').forEach(c => c.classList.toggle('on', (c.dataset.cat || null) === S.cat));
   document.querySelectorAll('[data-flow]').forEach(c => c.classList.toggle('on', c.dataset.flow === S.flow)); $('#bTgt').classList.toggle('on', S.onlyT); $('#bCar').classList.toggle('on', S.showCar);
@@ -6323,11 +6349,16 @@ function applyTheme(day) {
   areaMats.forEach(m => { m.opacity = day ? 0.045 : 0.09; });
   subFills.forEach(m => { m.opacity = day ? 0.04 : 0.07; });
   zoneDash.forEach(m => { m.color.copy(day ? m.userData.day : m.userData.night); m.opacity = day ? 0.95 : 0.88; });
-  subEdges.forEach(m => { m.color.copy(day ? m.userData.day : m.userData.night); m.opacity = day ? 0.8 : 0.62; });
+  subEdges.forEach(m => { m.color.copy(day ? m.userData.day : m.userData.night); m.opacity = day ? 1 : 0.62; });
   subCorners.forEach(m => { m.color.copy(day ? m.userData.day : m.userData.night); m.opacity = 1; });
-  grpGrids.forEach(m => { m.color.set(day ? 0x334155 : 0xcbd5e1); m.opacity = day ? 0.5 : 0.42; });
+  grpGrids.forEach(m => { m.color.set(day ? 0x64748B : 0xcbd5e1); m.opacity = day ? 0.38 : 0.42; });
   roadMats.forEach(m => { m.color.set(day ? 0xcbd5e1 : 0x1e293b); m.opacity = day ? 0.9 : 0.95; });
-  if (typeof applyLinkLook === 'function') applyLinkLook(!!day);
+  Object.values(matCache).forEach(m => m.uniforms.uColor.value.copy(day ? m.userData.day : m.userData.night));
+  LBL.forEach(l => { l.mw = 0; });
+  const dayChanged = window.__isDay !== !!day; window.__isDay = !!day;
+  if (dayChanged && typeof buildLinks === 'function' && LK.length) { buildLinks(); if (typeof applyState === 'function') applyState(); }
+  else if (typeof applyLinkLook === 'function') applyLinkLook(!!day);
+  if (typeof applyState === 'function' && typeof grpMark !== 'undefined') applyState();
   const fx = [[ringN, 0.5, 0.22], [ringN2, 0.38, 0.16], [arcT, 0.75, 0.4], [coreT, 0.9, 0.45]];
   fx.forEach(([im, n0, d0]) => { if (im && im.material.uniforms) im.material.uniforms.uAlpha.value = day ? d0 : n0; });
   if (bloom) {
@@ -6340,6 +6371,16 @@ function applyTheme(day) {
   try { localStorage.setItem('range-theme', day ? 'day' : 'night'); } catch (e) {}
 }
 window.__setDay = applyTheme;
+window.__dayAudit = () => { const bg = new T.Color(DAYBG_HEX), out = { lines: [], text: [] }; const day = document.body.classList.contains('day');
+  const push = (arr, name, c) => arr.push({ name, hex: '#' + c.getHexString(), cr: +crOf(c, bg).toFixed(2) });
+  zoneDash.forEach((m, i) => push(out.lines, 'L1虚线#' + i, m.userData.day));
+  subEdges.forEach((m, i) => push(out.lines, 'L2边#' + i, m.userData.day));
+  subCorners.forEach((m, i) => push(out.lines, 'L2角标#' + i, m.userData.day));
+  grpMark.forEach((m, i) => push(out.lines, 'L3框#' + i, m.day));
+  Object.keys(LINKD).forEach(g => push(out.lines, '流向' + g, new T.Color(LINKD[g])));
+  push(out.lines, '靶标', new T.Color(PAL_TD));
+  Object.keys(TC).forEach(k => push(out.lines, '图例' + k, new T.Color(TC[k][1])));
+  return out; };
 function syncDevices() {
   devices.forEach(d => { const p = d.car ? L.carriers[d.i] : L.nodes[d.i]; d.x = p.x; d.z = p.z; });
   pools.forEach(im => {
@@ -6417,17 +6458,17 @@ const P = $('#pbody');
 const nZ = L.boards.filter(b => b.level === 'zone').length, nS = L.boards.filter(b => b.level === 'sub').length, nG = L.boards.filter(b => b.level === 'grp').length;
 function flowItems() {
   return Object.keys(FLOWS).map(f => { const ls = LK.filter(l => l.flow === f); const g = ls[0] ? ls[0].grp : 'trunk';
-    return '<div class="fl" data-flow="' + f + '" style="--c:' + LINKC[g] + '"><b>' + f + '</b><span>' + esc(FLOWS[f][0]) + '<small>' + LINKN[g] + ' · ' + ls.length + ' 条链路</small></span></div>'; }).join('');
+    return '<div class="fl" data-flow="' + f + '" style="--c:' + LKV(g) + '"><b>' + f + '</b><span>' + esc(FLOWS[f][0]) + '<small>' + LINKN[g] + ' · ' + ls.length + ' 条链路</small></span></div>'; }).join('');
 }
 function showOverview() {
   $('#ptitle').innerHTML = '靶场概览<small>苏州移动比赛设计 · v3 两阵营不对称</small>';
   P.innerHTML = '<div class="stats">' + [['域', 3], ['一级区域', nZ], ['二级子区', nS], ['三级节点组', nG], ['节点', nodes.length], ['靶标', tgtDevs.length], ['承载设备', carriers.length], ['链路', LK.length]].map(([k, v]) => '<div><b>' + v + '</b><span>' + k + '</span></div>').join('') + '</div>'
     + '<h3>域(点击筛选 · 拉近)</h3>' + Object.keys(DOMC).map(d => '<div class="dm" data-dom="' + d + '" style="--c:' + DOMC[d] + '"><b>' + esc(d) + '</b><span>' + cntBy(n => n['域'] === d) + ' 节点 · 靶标 ' + cntBy(n => n['域'] === d && n['是否靶标'] === '是') + ' · 承载 ' + carriers.filter(c => c['所属域'] === d).length + '</span><em class="fz" data-fit="' + d + '" title="拉近到该域">拉近</em></div>').join('')
-    + '<h3>区域色</h3><div class="zlegend">' + Object.keys(ZCOL).map(dom => '<div class="zr"><b style="color:' + DOMC[dom] + '">' + esc(dom) + '</b>' + Object.keys(ZCOL[dom]).filter(n => dom === '公共域' ? n !== '公共互联网区' : true).map(n => '<span><i style="background:' + ZCOL[dom][n] + '"></i>' + esc(n.replace('子区', '')) + '</span>').join('') + '</div>').join('') + '</div>'
+    + '<h3>区域色</h3><div class="zlegend">' + Object.keys(ZCOL).map(dom => '<div class="zr"><b style="color:' + tc(DOMC[dom], 4.6) + '">' + esc(dom) + '</b>' + Object.keys(ZCOL[dom]).filter(n => dom === '公共域' ? n !== '公共互联网区' : true).map(n => '<span><i style="background:' + tc(ZCOL[dom][n], 3.2) + '"></i>' + esc(n.replace('子区', '')) + '</span>').join('') + '</div>').join('') + '</div>'
     + '<h3>流向 F1–F9(点击高亮)</h3>' + flowItems()
     + '<p class="note">两阵营之间无直连,跨阵营流量必须经公共域中转(F9)。承载交换机/防火墙不计入 800 节点,可用「承载设备」按钮开关。点击任意设备查看 14 字段详情。</p>';
 }
-function linkRow(l) { return '<div class="lk" data-link="' + l.id + '" style="--c:' + LINKC[l.grp] + '"><b>' + l.id + '</b><span>' + esc(l.lk['起点']) + ' → ' + esc(l.lk['终点']) + '<small>' + esc(l.lk['协议/端口']) + '</small></span></div>'; }
+function linkRow(l) { return '<div class="lk" data-link="' + l.id + '" style="--c:' + LKV(l.grp) + '"><b>' + l.id + '</b><span>' + esc(l.lk['起点']) + ' → ' + esc(l.lk['终点']) + '<small>' + esc(l.lk['协议/端口']) + '</small></span></div>'; }
 function showFlow(f) {
   const ls = LK.filter(l => l.flow === f); const g = ls[0] ? ls[0].grp : 'trunk';
   $('#ptitle').innerHTML = f + ' · ' + esc(FLOWS[f][0]) + '<small>' + LINKN[g] + ' · ' + ls.length + ' 条链路</small>';
@@ -6453,7 +6494,7 @@ function select(j) {
   } else {
     const n = d.d;
     $('#ptitle').innerHTML = esc(n['中文名·用途']) + '<small>' + esc(n['节点名称']) + '</small>';
-    P.innerHTML = '<div class="badges">' + (d.isT ? '<span class="badge" style="color:' + PAL.warn + ';border-color:' + PAL.warn + '">◆ 靶标</span>' : '<span class="badge">纵深支撑节点</span>') + '<span class="badge" style="color:' + DOMC[d.dom] + ';border-color:' + DOMC[d.dom] + '">' + esc(d.dom) + '</span><span class="badge" style="color:' + RM.CAT[d.cat].main + '">' + esc(d.cat) + '</span></div>'
+    P.innerHTML = '<div class="badges">' + (d.isT ? '<span class="badge" style="color:' + tcx(PAL.warn, PAL_TD) + ';border-color:' + tcx(PAL.warn, PAL_TD) + '">◆ 靶标</span>' : '<span class="badge">纵深支撑节点</span>') + '<span class="badge" style="color:' + DOMC[d.dom] + ';border-color:' + DOMC[d.dom] + '">' + esc(d.dom) + '</span><span class="badge" style="color:' + RM.CAT[d.cat].main + '">' + esc(d.cat) + '</span></div>'
       + '<div class="crumb">' + [n['域'], n['一级区域'], n['二级子区'], n['三级节点组']].map(esc).join(' <i>›</i> ') + '</div>'
       + '<h3>节点字段(14)</h3><table class="kv" id="kv14">' + D.F.map(k => '<tr><th>' + esc(k) + '</th><td' + (k === '对应原始靶标' && n[k] ? ' class="t"' : '') + '>' + (n[k] === '' ? '<span class="dim">—</span>' : esc(n[k])) + '</td></tr>').join('') + '</table>'
       + (rel.length ? '<h3>所在区域的流向链路</h3>' + rel.map(linkRow).join('') : '') + '<div class="pbtn"><button data-act="focus">◎ 聚焦</button><button data-act="overview">← 返回概览</button></div>';
@@ -6462,7 +6503,7 @@ function select(j) {
   if (d.isT) $('#cap').className = 'warn';
   syncChips(); applyState();
 }
-$('#legend').innerHTML = '<span><i style="background:' + LINKC.trunk + '"></i>主干 trunk</span><span><i style="background:' + LINKC.mgmt + '"></i>管理·安全 mgmt</span><span><i style="background:' + LINKC.cross + '"></i>跨阵营 cross</span><span><i style="background:' + PAL.warn + '"></i>靶标</span><span><i style="background:' + CARC + ';border-radius:0;transform:rotate(45deg) scale(.8)"></i>承载设备</span><span><i style="background:' + DOMC['公共域'] + '"></i>公共域</span><span><i style="background:' + DOMC['阵营A「零日」'] + '"></i>阵营A</span><span><i style="background:' + DOMC['阵营B「溢出」'] + '"></i>阵营B</span>';
+$('#legend').innerHTML = '<span><i style="background:' + LKV('trunk') + '"></i>主干 trunk</span><span><i style="background:' + LKV('mgmt') + '"></i>管理·安全 mgmt</span><span><i style="background:' + LKV('cross') + '"></i>跨阵营 cross</span><span><i style="background:' + tcx(PAL.warn, PAL_TD) + '"></i>靶标</span><span><i style="background:' + tc(CARC, 3.2) + ';border-radius:0;transform:rotate(45deg) scale(.8)"></i>承载设备</span><span><i style="background:' + tc(DOMC['公共域'], 3.2) + '"></i>公共域</span><span><i style="background:' + tc(DOMC['阵营A「零日」'], 3.2) + '"></i>阵营A</span><span><i style="background:' + tc(DOMC['阵营B「溢出」'], 3.2) + '"></i>阵营B</span>';
 $('#hstat').innerHTML = '3 域 · ' + nZ + ' 区域 · ' + nS + ' 子区 · ' + nG + ' 节点组 · <b>' + nodes.length + '</b> 节点 · 靶标 <b class="t">' + tgtDevs.length + '</b> · 承载 ' + carriers.length + ' · 链路 ' + LK.length;
 showOverview(); syncChips();
 
