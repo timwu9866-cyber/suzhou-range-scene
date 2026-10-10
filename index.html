@@ -141,18 +141,15 @@ body.day .lbl-car{font-size:10.5px;line-height:14px}body.day .lbl-car em{opacity
 body.day .lbl-node.t{color:#B4233F!important}body.day .lbl-node.t::before{color:#B4233F;text-shadow:0 0 0 #fff,-1px 0 #fff,1px 0 #fff,0 -1px #fff,0 1px #fff}
 body.day #legend{background:rgba(248,250,252,.96);border-color:#94A3B8;color:#0F172A}
 body.day .zlegend .zr b{filter:none}
-/* ---------- 明亮版:近白冷色、白底卡片 + 柔和投影、天蓝强调 ---------- */
-body.day.bright{--bg:#F2F6FB;--panel:#FFFFFF;--line:#DCE4EE;--dim:#334155;--txt:#0F172A;background:linear-gradient(180deg,#FAFCFF 0%,#EAF0F7 100%)}
-body.bright #toolbar{background:rgba(255,255,255,.92);border-bottom:1px solid #DCE4EE;box-shadow:0 2px 10px rgba(30,64,120,.06)}
-body.bright button,body.bright select,body.bright .chip{background:#FFFFFF;border-color:#C9D6E6;box-shadow:0 1px 2px rgba(30,64,120,.06)}
-body.bright button.on,body.bright .chip.on{background:#E3F0FF;color:#0B3D91!important;border-color:#2F6FD0;box-shadow:inset 0 0 0 1px #2F6FD0}
-body.bright #bTheme{background:#FFF7E0;border-color:#E2B33C;color:#6B4A00}
-body.bright #panel,body.bright #legend,body.bright #title,body.bright #tip,body.bright #cap{background:#FFFFFF;border-color:#DCE4EE;box-shadow:0 6px 24px rgba(30,64,120,.10)}
-body.bright .stats div,body.bright .dm,body.bright .fl,body.bright .lk,body.bright .badge,body.bright .crumb{background:#F6F9FD;border-color:#E2E9F2}
-body.bright .dm.on,body.bright .fl.on,body.bright .lk.on{background:#E3F0FF}
-body.bright .lbl-sub,body.bright .lbl-grp,body.bright .lbl-node,body.bright .lbl-car,body.bright .lbl-dom,body.bright .lbl-zone{background:#FFFFFF!important;box-shadow:0 1px 3px rgba(30,64,120,.14),0 0 0 1px #D5DFEB!important;border-color:#D5DFEB!important}
-body.bright .lbl-node.t{color:#B8233F!important}
-body.bright #q,body.bright #sres{background:#FFFFFF}
+/* ---------- 明亮版(基于夜间):深海军蓝底整体提亮,文字/面板更亮更通透 ---------- */
+body.bright{--bg:#0E1A33;--panel:#15264A;--line:#2A4170;--ink:#FFFFFF;--muted:#C3D0E6;--dim:#B4C3DC;--note:#9FB0CC;--txt:#F1F5F9;background:linear-gradient(180deg,#0B1630,#13223F)}
+body.bright #toolbar{background:#0E1A33}
+body.bright button.on,body.bright .chip.on{background:#24406F;border-color:#7FB2FF}
+body.bright #bTheme{border-color:#7FB2FF;color:#DCEBFF;box-shadow:0 0 8px rgba(127,178,255,.35)}
+body.bright #panel,body.bright #legend,body.bright #title,body.bright #tip,body.bright #cap{background:rgba(21,38,74,.94);border-color:#2A4170}
+body.bright .lbl{filter:brightness(1.18) saturate(1.15)}
+body.bright .lbl-zone{background:rgba(21,38,74,.9)}
+body.bright .lbl-grp{color:#C3D0E6;opacity:.95}
 </style>
 </head>
 <body>
@@ -5650,7 +5647,7 @@ const HY = RL.HY;
 /* Archify 语义色:frontend 青 / backend 绿 / database 紫 / cloud 琥珀 / security 玫红 / messagebus 橙 / external 灰 */
 const ARC = { canvas: '#020617', mask: '#0F172A', border: '#1E293B', ink: '#FFFFFF', muted: '#94A3B8', dim: '#475569', frontend: '#22D3EE', backend: '#34D399', database: '#A78BFA', cloud: '#FBBF24', security: '#FB7185', messagebus: '#FB923C', external: '#94A3B8' };
 const PAL_TD = '#B4233F'; // 日间靶标
-const PAL_TB = '#D0344F'; // 明亮版靶标(对 #EAF0F7 ≥ 4.5)
+const PAL_TB = '#FF6B81'; // 明亮版靶标(对 #0E1A33 ≥ 4.5)
 const PAL = { atk: '#D9546A', def: ARC.frontend, ok: ARC.backend, warn: '#D9546A', info: ARC.external, vio: ARC.database, bus: ARC.messagebus, cloud: ARC.cloud };
 const DOMC = { '公共域': '#7A868A', '阵营A「零日」': '#5A7BC4', '阵营B「溢出」': '#C0565A' }; // Unity 蓝色阵营 #0000FF / 作战区红 #D40000 提亮以便夜/日可读
 /* 区域底色:阵营分色相,同阵营内的一级区域(公共域按二级子区)再错开明度,半透明、不进辉光 */
@@ -5668,16 +5665,16 @@ function crOf(a, b) { const x = relLum(a), y = relLum(b); return (Math.max(x, y)
 function dayTone(hex, minCR, t0) { const bg = new T.Color(DAYBG_HEX), ink = new T.Color('#0F172A'); let c = new T.Color(hex);
   for (let t = t0 || 0; t <= 0.92; t += 0.02) { c = new T.Color(hex).lerp(ink, t); if (crOf(c, bg) >= minCR) break; } return c; }
 const dayHex = (hex, minCR, t0) => '#' + dayTone(hex, minCR, t0).getHexString().toUpperCase();
-/* ---------- 明亮版:近白冷色渐变底(审计取较深一端 #EAF0F7),颜色先适度提饱和(×1.18,上限 0.62)再只按需压暗到对比度,
-   比日间(混入深墨、起步就压 30~50%)更清透鲜明,但不到霓虹 ---------- */
-const BRBG_HEX = '#EAF0F7';
-function brTone(hex, minCR) { const bg = new T.Color(BRBG_HEX), ink = new T.Color('#1E293B'), hsl = {}; const c0 = new T.Color(hex); c0.getHSL(hsl); c0.setHSL(hsl.h, Math.min(0.62, hsl.s * 1.18), hsl.l);
-  let c = c0.clone(); for (let t = 0; t <= 0.92; t += 0.02) { c = c0.clone().lerp(ink, t); if (crOf(c, bg) >= minCR) break; } return c; }
+/* ---------- 明亮版(基于夜间):底色提亮为深海军蓝 #0E1A33,色相不变,饱和度 ×1.25(上限 0.72)、亮度 +0.10(上限 0.74),
+   再按需继续提亮直到对比度达标 —— 比夜间更通透发亮,但不到霓虹 ---------- */
+const BRBG_HEX = '#0E1A33';
+function brTone(hex, minCR) { const bg = new T.Color(BRBG_HEX), hsl = {}; const c0 = new T.Color(hex); c0.getHSL(hsl); c0.setHSL(hsl.h, Math.min(0.72, hsl.s * 1.25), Math.min(0.74, hsl.l + 0.10));
+  let c = c0.clone(); for (let t = 0; t <= 0.9; t += 0.02) { c = c0.clone().lerp(new T.Color('#F1F5F9'), t); if (crOf(c, bg) >= (minCR || 3)) break; } return c; }
 const brHex = (hex, minCR) => '#' + brTone(hex, minCR).getHexString().toUpperCase();
 let THEME = 'night'; const isBright = () => THEME === 'bright';
 /* 主题相关的 HTML 颜色:CSS 变量,夜间原色、日间加深色 */
 const TC = {}; let tcStyle = null;
-function tcx(n, d, b) { const k = 'tc' + (n + d).replace(/#/g, ''); if (!TC[k]) { TC[k] = [n, d, b || brHex(n, 4.6)]; if (!tcStyle) { tcStyle = document.createElement('style'); document.head.appendChild(tcStyle); } tcStyle.textContent = ':root{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][0]).join(';') + '}body.day{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][1]).join(';') + '}body.day.bright{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][2]).join(';') + '}'; } return 'var(--' + k + ')'; }
+function tcx(n, d, b) { const k = 'tc' + (n + d).replace(/#/g, ''); if (!TC[k]) { TC[k] = [n, d, b || brHex(n, 4.6)]; if (!tcStyle) { tcStyle = document.createElement('style'); document.head.appendChild(tcStyle); } tcStyle.textContent = ':root{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][0]).join(';') + '}body.day{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][1]).join(';') + '}body.bright{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][2]).join(';') + '}'; } return 'var(--' + k + ')'; }
 const tc = (hex, minCR) => tcx(hex, dayHex(hex, minCR || 3.2, 0.3));
 function areaColor(dom, zone, sub) {
   const m = ZCOL[dom] || {};
@@ -5766,7 +5763,7 @@ const CC = new T.Vector2((CB.x0 + CB.x1) / 2, (CB.z0 + CB.z1) / 2), CW = CB.x1 -
     uniforms: { uC: { value: new T.Vector2(CC.x, CC.y) }, uSpan: { value: new T.Vector2(Math.max(CW, 40), Math.max(CD, 40)) }, uTime: U.uTime, uDay: { value: 0 }, uBr: { value: 0 } },
     transparent: true, depthWrite: false, blending: T.AdditiveBlending,
     vertexShader: 'varying vec3 vW;void main(){vec4 w=modelMatrix*vec4(position,1.);vW=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;}',
-    fragmentShader: 'varying vec3 vW;uniform vec2 uC,uSpan;uniform float uTime,uDay,uBr;void main(){vec2 p=vW.xz-uC;vec2 g=abs(fract(p-.5)-.5)/fwidth(p);float l=1.-min(min(g.x,g.y),1.);vec2 g2=abs(fract(p/5.-.5)-.5)/fwidth(p/5.);float l2=1.-min(min(g2.x,g2.y),1.);float d=length(p/uSpan);float f=exp(-d*d*2.2);float line=l*.55+l2*.85;vec3 night=vec3(.2,.27,.38)*(l*.2+l2*.42)*f;vec4 day=vec4(mix(vec3(.58,.64,.72),vec3(.60,.70,.82),uBr), l2*f*mix(.3,.24,uBr)+l*f*.06*uBr);gl_FragColor=mix(vec4(night,1.), day, uDay);}',
+    fragmentShader: 'varying vec3 vW;uniform vec2 uC,uSpan;uniform float uTime,uDay,uBr;void main(){vec2 p=vW.xz-uC;vec2 g=abs(fract(p-.5)-.5)/fwidth(p);float l=1.-min(min(g.x,g.y),1.);vec2 g2=abs(fract(p/5.-.5)-.5)/fwidth(p/5.);float l2=1.-min(min(g2.x,g2.y),1.);float d=length(p/uSpan);float f=exp(-d*d*2.2);float line=l*.55+l2*.85;vec3 night=mix(vec3(.2,.27,.38),vec3(.30,.42,.62),uBr)*(l*mix(.2,.3,uBr)+l2*mix(.42,.62,uBr))*f;vec4 day=vec4(mix(vec3(.58,.64,.72),vec3(.60,.70,.82),uBr), l2*f*mix(.3,.24,uBr)+l*f*.06*uBr);gl_FragColor=mix(vec4(night,1.), day, uDay);}',
   }));
   grid.rotation.x = -Math.PI / 2; grid.position.set(CC.x, -0.01, CC.y); grid.renderOrder = 0; scene.add(grid);
   groundGrid = grid;
@@ -5944,7 +5941,7 @@ Object.keys(zoneSeen).forEach(zk => {
   const zHex = (ZCOL[z.dom] && ZCOL[z.dom][zk.split('\0')[1]]) || hex; // 日间:一级虚线按区域色相着色
   const day = dayTone(zHex, 3.6, 0.5);
   const m = new T.LineDashedMaterial({ color: night, dashSize: 0.85, gapSize: 0.55, transparent: true, opacity: 0.88, depthWrite: false });
-  m.userData = { night: night, day: day, bright: brTone(zHex, 3.4) };
+  m.userData = { night: night, day: day, bright: brTone(zHex, 3.6) };
   const line = new T.Line(g, m);
   line.computeLineDistances();
   line.renderOrder = 3; line.frustumCulled = false; gBoards.add(line); zoneDash.push(m);
@@ -5972,7 +5969,7 @@ areaRects.forEach(b => {
   const gMat = new T.LineBasicMaterial({ color: 0xcbd5e1, transparent: true, opacity: 0.42, depthWrite: false });
   const grid = new T.LineSegments(gg, gMat);
   grid.renderOrder = 3; grid.frustumCulled = false; gBoards.add(grid); grpGrids.push(gMat);
-  grpMark.push({ fill, line, dim, day: dayC, br: brTone(b.hex, 3.2), dom: b.dom, zone: b.zone, sub: b.sub, name: b.name, hex: b.hex });
+  grpMark.push({ fill, line, dim, day: dayC, br: brTone(b.hex, 3.2), brN: lin(brHex(b.hex, 3.2)).multiplyScalar(0.95), dom: b.dom, zone: b.zone, sub: b.sub, name: b.name, hex: b.hex });
 });
 window.__areaColors = {
   meshes: areaMeshN,
@@ -5992,7 +5989,7 @@ function devMat(cat, role) {
   const m = new T.ShaderMaterial({ uniforms: { uColor: { value: lin(RM.colorFor(cat, role)).multiplyScalar(role === 'led' ? 1.3 : role === 'face' ? 0.95 : 1.25) }, uRim: { value: main }, uRimK: { value: rimK }, uLam: { value: role === 'led' ? 0 : 1 } }, vertexShader: VS_DEV, fragmentShader: FS_DEV });
   const nC = m.uniforms.uColor.value.clone();
   const dC = role === 'body' ? main.clone().multiplyScalar(0.6) : role === 'face' ? main.clone().multiplyScalar(0.85) : nC.clone();
-  const bC = role === 'body' ? main.clone().lerp(new T.Color(1, 1, 1), 0.12) : role === 'face' ? main.clone().lerp(new T.Color(1, 1, 1), 0.38) : role === 'base' ? new T.Color(0.78, 0.82, 0.88) : nC.clone(); // 明亮版:本色 + 浅面,干净轻快
+  const bC = nC.clone().multiplyScalar(role === 'led' ? 1.5 : role === 'base' ? 1.15 : 1.32); // 明亮版:在夜间色基础上整体提亮,LED 更亮
   m.userData = { cat, role, night: nC, day: dC, bright: bC }; return (matCache[k] = m);
 }
 const devices = []; // 统一:0..799 节点,800.. 承载
@@ -6111,7 +6108,7 @@ R.links.forEach((r, k) => {
   const y = 0.058 + (k % 3) * 0.006;
   const p2 = L.spread ? r.pts : RL.roundPath(r.pts, 0.42, 0.08), p3 = p2.map(p => new V3(p[0], y, p[1]));
   const cv = new PolyCurve(p3);
-  const rMain = (grp === 'mgmt' ? 0.05 : grp === 'cross' ? 0.07 : 0.065) * (document.body.classList.contains('day') ? 1.4 : 1); // 日间加粗 40%
+  const rMain = (grp === 'mgmt' ? 0.05 : grp === 'cross' ? 0.07 : 0.065) * (document.body.classList.contains('day') ? 1.4 : document.body.classList.contains('bright') ? 1.2 : 1); // 日间加粗 40%,明亮版 20%
   const mk = (r0) => { const m = new T.ShaderMaterial({ uniforms: { uLane: { value: col.clone() }, uHot: { value: col.clone() }, uLen: { value: cv.len }, uTime: U.uTime, uSpeed: { value: grp === 'cross' ? 2.2 : 1.6 }, uDash: { value: 1.05 }, uGap: { value: 1.55 }, uAlpha: { value: 0.9 }, uLaneA: { value: 0.42 }, uHotA: { value: 1 } }, vertexShader: tubeVS, fragmentShader: tubeFS, transparent: true, depthWrite: false, blending: T.AdditiveBlending });
     const me = new T.Mesh(straightTube(p3, r0, cv.c, cv.len), m); me.renderOrder = 10; gLinks.add(me); return me; };
   const main = mk(rMain), halo = mk(rMain * 1.65);
@@ -6132,7 +6129,7 @@ function applyLinkLook(day) {
   const C = { trunk: { laneN: '#3F9A6B', hotN: '#7CC4C0', laneD: '#2E6B4D', hotD: '#3A7F74' }, mgmt: { laneN: '#4F8FC0', hotN: '#9CC0DE', laneD: '#3A6A92', hotD: '#44779F' }, cross: { laneN: '#B5603F', hotN: '#D08A6A', laneD: '#9E4A36', hotD: '#B5603F' } }; // Unity 网络路径 / 安全设备蓝 / 攻击路径
   LK.forEach(l => {
     const c = C[l.grp] || C.trunk;
-    const br = isBright(), lane = lin(br ? brHex(c.laneN, 3.4) : day ? c.laneD : c.laneN), hot = lin(br ? brHex(c.hotN, 3.2) : day ? c.hotD : c.hotN);
+    const br = isBright(), lane = lin(br ? brHex(c.laneN, 3.6) : day ? c.laneD : c.laneN), hot = lin(br ? brHex(c.hotN, 4) : day ? c.hotD : c.hotN);
     l.col.copy(day ? hot : lin(LINKC[l.grp])); l.hot.copy(hot);
     [l.main, l.halo].forEach(mesh => {
       const halo = mesh === l.halo, u = mesh.material.uniforms;
@@ -6271,7 +6268,7 @@ function applyState() {
   pools.forEach(setPool);
   const tint = (im, f) => { const o = im.userData.order; for (let i = 0; i < o.length; i++) { const d = devices[o[i]]; f(d, C1); im.setColorAt(i, C1); } im.instanceColor.needsUpdate = true; };
   const kk = d => Math.min(1.6, d.k);
-  const TW = dayOn0 => dayOn0 ? (isBright() ? PAL_TB : PAL_TD) : PAL.warn; const isDay = document.body.classList.contains('day');
+  const TW = dayOn0 => dayOn0 ? PAL_TD : (isBright() ? PAL_TB : PAL.warn); const isDay = document.body.classList.contains('day');
   tint(ringN, (d, c) => c.copy(lin(d.isT ? TW(isDay) : DOMC[d.dom])).multiplyScalar((d.isT ? 0.95 : 0.55) * kk(d)));
   tint(arcT, (d, c) => c.copy(lin(TW(isDay))).multiplyScalar(0.9 * kk(d)));
   tint(coreT, (d, c) => c.copy(lin(TW(isDay))).multiplyScalar(1.0 * kk(d)));
@@ -6287,7 +6284,7 @@ function applyState() {
     const on = !!(sel && !sel.car && m.dom === sel.dom && m.zone === sel.zone && m.sub === sel.sub && m.name === sel.grp);
     m.fill.material.opacity = on ? 0.2 : 0.022;
     m.line.material.opacity = on ? 1 : (dayOn ? 1 : 0.85);
-    m.line.material.color.copy(on ? lin(DOMC[m.dom]) : (dayOn ? (isBright() ? m.br : m.day) : m.dim));
+    m.line.material.color.copy(on ? lin(DOMC[m.dom]) : (dayOn ? m.day : isBright() ? m.brN : m.dim));
     if (on) window.__grpOn = m.dom + '/' + m.name;
   });
   labelsDirty = true;
@@ -6298,7 +6295,7 @@ const LBL = []; const lblHost = $('#labels'); let labelsDirty = true;
 const NEAR_PX = (window.__TUNE && window.__TUNE.NEARPX) || 62;
 const DOMROLE = { '公共域': '互联网入口', '阵营A「零日」': '企业总部/园区', '阵营B「溢出」': '运营商机房/数据中心' };
 const LBLON = { dom: true, zone: true, sub: true, grp: true, car: true, node: true };
-function addLabel(kind, html, wp, color, extra) { const el = document.createElement('div'); el.className = 'lbl lbl-' + kind; el.innerHTML = html; if (color) el.style.setProperty('--c', color); lblHost.appendChild(el); const o = Object.assign({ el, kind, wp, shown: false }, extra || {}); LBL.push(o); return o; }
+function addLabel(kind, html, wp, color, extra) { const el = document.createElement('div'); el.className = 'lbl lbl-' + kind; el.innerHTML = html; if (color) el.style.setProperty('--c', (color.length === 7 && color[0] === '#') ? tcx(color, dayHex(color, 4.6), brHex(color, 5)) : color); /* 明亮版标签色按深底提亮 */ lblHost.appendChild(el); const o = Object.assign({ el, kind, wp, shown: false }, extra || {}); LBL.push(o); return o; }
 const cntBy = (f) => nodes.filter(f).length;
 /* ---------- 区域名贴边平铺:一级/二级/三级名字沿等距视角左下边(世界前沿 z1)平铺在边内侧的名字条里 ----------
    字面朝上贴地,纵深方向按相机仰角拉伸(等距 1/sin32°≈1.89,顶视 1),屏幕上字形不压扁;日夜两套字色 + 底牌。 */
@@ -6327,10 +6324,10 @@ function buildEdgeLabels() {
 function edgeTheme(day) {
   EL.forEach(e => { const cv = e.cv, cx = cv.getContext('2d'), W = cv.width, H = cv.height, base = edgeColor(e.b);
     cx.clearRect(0, 0, W, H); const r = 16;
-    const brt = isBright(); cx.fillStyle = brt ? 'rgba(255,255,255,0.97)' : day ? 'rgba(248,250,252,0.94)' : 'rgba(8,15,30,0.80)';
+    const brt = isBright(); cx.fillStyle = brt ? 'rgba(16,30,60,0.86)' : day ? 'rgba(248,250,252,0.94)' : 'rgba(8,15,30,0.80)';
     cx.beginPath(); cx.moveTo(r, 4); cx.lineTo(W - r, 4); cx.quadraticCurveTo(W - 2, 4, W - 2, r); cx.lineTo(W - 2, H - r); cx.quadraticCurveTo(W - 2, H - 4, W - r, H - 4); cx.lineTo(r, H - 4); cx.quadraticCurveTo(2, H - 4, 2, H - r); cx.lineTo(2, r); cx.quadraticCurveTo(2, 4, r, 4); cx.fill();
-    cx.lineWidth = 4; cx.strokeStyle = brt ? brHex(base, 3.0) : day ? dayHex(base, 3.0, 0.3) : base; cx.globalAlpha = day ? 0.9 : 0.75; cx.stroke(); cx.globalAlpha = 1;
-    cx.font = ELFONT; cx.textBaseline = 'middle'; cx.fillStyle = brt ? brHex(base, 4.8) : day ? dayHex(base, 4.8, 0.45) : '#' + new T.Color(base).lerp(new T.Color('#FFFFFF'), e.kind === 'grp' ? 0.2 : 0.45).getHexString();
+    cx.lineWidth = 4; cx.strokeStyle = brt ? brHex(base, 3.4) : day ? dayHex(base, 3.0, 0.3) : base; cx.globalAlpha = day ? 0.9 : 0.75; cx.stroke(); cx.globalAlpha = 1;
+    cx.font = ELFONT; cx.textBaseline = 'middle'; cx.fillStyle = brt ? brHex(base, 7) : day ? dayHex(base, 4.8, 0.45) : '#' + new T.Color(base).lerp(new T.Color('#FFFFFF'), e.kind === 'grp' ? 0.2 : 0.45).getHexString();
     const avail = W - 2 * 0.225 * H, tw = cx.measureText(e.txt).width; if (tw > avail) { cx.font = ELFONT.replace('64px', Math.floor(64 * avail / tw) + 'px'); } cx.textAlign = 'center'; cx.fillText(e.txt, W / 2, H / 2 + 3); cx.textAlign = 'left';
     e.m.material.map.needsUpdate = true; });
 }
@@ -6425,7 +6422,7 @@ function updateLabels() {
 
 /* ---------- UI ---------- */
 const CATS = Object.keys(RM.CAT);
-function chip(label, attrs, color) { return '<span class="chip" ' + attrs + (color ? ' style="color:' + color + '"' : '') + '>' + label + '</span>'; }
+function chip(label, attrs, color) { return '<span class="chip" ' + attrs + (color ? ' style="color:' + (color.startsWith('var(') ? color : tcx(color, dayHex(color, 4.6), brHex(color, 4.8))) + '"' : '') + '>' + label + '</span>'; }
 $('#fDom').innerHTML = chip('全部域', 'data-dom=""') + Object.keys(DOMC).map(d => chip(d.replace('「', ' 「').replace(/^(阵营[AB]) /, '$1'), 'data-dom="' + d + '"', DOMC[d])).join('');
 $('#fCat').innerHTML = chip('全部大类', 'data-cat=""') + CATS.map(c => chip(c + ' <b>' + nodes.filter(n => n['3D样式大类'] === c).length + '</b>', 'data-cat="' + c + '"', RM.CAT[c].main)).join('');
 $('#fFlow').innerHTML = Object.keys(FLOWS).map(f => { const g = LK.find(l => l.flow === f); return chip(f, 'data-flow="' + f + '" title="' + FLOWS[f][0] + '"', g ? LKV(g.grp) : '#cfe'); }).join('');
@@ -6459,25 +6456,25 @@ $('#bPanel').onclick = () => setPanel($('#panel').classList.contains('hide'), tr
 $('#bloom').oninput = e => { const v = +e.target.value; bloom.strength = v / 100; $('#bloomV').textContent = v + '%'; };
 let brBgTex = null;
 function brightBg() { if (brBgTex) return brBgTex; const c = document.createElement('canvas'); c.width = 4; c.height = 256; const x = c.getContext('2d'), g = x.createLinearGradient(0, 0, 0, 256);
-  g.addColorStop(0, '#FAFCFF'); g.addColorStop(0.55, '#F1F5FB'); g.addColorStop(1, '#EAF0F7'); x.fillStyle = g; x.fillRect(0, 0, 4, 256); brBgTex = new T.CanvasTexture(c); brBgTex.colorSpace = T.SRGBColorSpace; return brBgTex; }
+  g.addColorStop(0, '#0B1630'); g.addColorStop(0.55, '#0E1A33'); g.addColorStop(1, '#13223F'); x.fillStyle = g; x.fillRect(0, 0, 4, 256); brBgTex = new T.CanvasTexture(c); brBgTex.colorSpace = T.SRGBColorSpace; return brBgTex; }
 function applyTheme(day) {
-  const mode = day === 'bright' ? 'bright' : day ? 'day' : 'night'; THEME = mode; day = mode !== 'night'; const br = mode === 'bright';
+  const mode = day === 'bright' ? 'bright' : day ? 'day' : 'night'; THEME = mode; day = mode === 'day'; const br = mode === 'bright'; // 明亮版走夜间管线 + 提亮
   document.body.classList.toggle('day', !!day); document.body.classList.toggle('bright', br);
-  const bg = br ? 0xF2F6FB : day ? 0xe2e8f0 : 0x020617;
+  const bg = br ? 0x0E1A33 : day ? 0xe2e8f0 : 0x020617;
   scene.background = br ? brightBg() : new T.Color(bg); renderer.setClearColor(bg, 1);
-  if (typeof shadowFx !== 'undefined' && shadowFx) shadowFx.visible = br;
+  if (typeof shadowFx !== 'undefined' && shadowFx) shadowFx.visible = false;
   if (groundGrid) {
     groundGrid.material.uniforms.uDay.value = day ? 1 : 0; groundGrid.material.uniforms.uBr.value = br ? 1 : 0;
     groundGrid.material.blending = day ? T.NormalBlending : T.AdditiveBlending;
     groundGrid.material.needsUpdate = true;
   }
-  areaMats.forEach(m => { if (!m.userData.c0) m.userData.c0 = m.color.clone(); m.color.copy(br ? m.userData.c0.clone().lerp(new T.Color(1, 1, 1), 0.8) : m.userData.c0); m.opacity = br ? 0.42 : day ? 0.045 : 0.09; });
-  subFills.forEach(m => { if (!m.userData.c0) m.userData.c0 = m.color.clone(); m.color.copy(br ? new T.Color(1, 1, 1) : m.userData.c0); m.opacity = br ? 0.82 : day ? 0.04 : 0.07; }); // 明亮版:二级白色底板
-  zoneDash.forEach(m => { m.color.copy(br ? m.userData.bright : day ? m.userData.day : m.userData.night); m.opacity = day ? 0.95 : 0.88; });
-  subEdges.forEach(m => { m.color.copy(br ? m.userData.bright : day ? m.userData.day : m.userData.night); m.opacity = day ? 1 : 0.62; });
+  areaMats.forEach(m => { if (!m.userData.c0) m.userData.c0 = m.color.clone(); m.color.copy(br ? new T.Color(brHex('#' + m.userData.c0.getHexString(), 3)) : m.userData.c0); m.opacity = br ? 0.13 : day ? 0.045 : 0.09; });
+  subFills.forEach(m => { if (!m.userData.c0) m.userData.c0 = m.color.clone(); m.color.copy(br ? new T.Color(brHex('#' + m.userData.c0.getHexString(), 3)) : m.userData.c0); m.opacity = br ? 0.11 : day ? 0.04 : 0.07; }); // 明亮版:二级填充更饱和、仍半透明
+  zoneDash.forEach(m => { m.color.copy(br ? m.userData.bright : day ? m.userData.day : m.userData.night); m.opacity = br ? 1 : day ? 0.95 : 0.88; });
+  subEdges.forEach(m => { m.color.copy(br ? m.userData.bright : day ? m.userData.day : m.userData.night); m.opacity = br ? 0.9 : day ? 1 : 0.62; });
   subCorners.forEach(m => { m.color.copy(br ? m.userData.bright : day ? m.userData.day : m.userData.night); m.opacity = 1; });
-  grpGrids.forEach(m => { m.color.set(br ? 0x8FA3BC : day ? 0x64748B : 0xcbd5e1); m.opacity = br ? 0.34 : day ? 0.38 : 0.42; });
-  roadMats.forEach(m => { m.color.set(br ? 0xDDE6F1 : day ? 0xcbd5e1 : 0x1e293b); m.opacity = day ? 0.9 : 0.95; });
+  grpGrids.forEach(m => { m.color.set(br ? 0xE2E8F0 : day ? 0x64748B : 0xcbd5e1); m.opacity = br ? 0.5 : day ? 0.38 : 0.42; });
+  roadMats.forEach(m => { m.color.set(br ? 0x24365A : day ? 0xcbd5e1 : 0x1e293b); m.opacity = day ? 0.9 : 0.95; });
   Object.values(matCache).forEach(m => m.uniforms.uColor.value.copy(br ? m.userData.bright : day ? m.userData.day : m.userData.night));
   LBL.forEach(l => { l.mw = 0; }); if (typeof edgeTheme === 'function') edgeTheme(!!day);
   const dayChanged = window.__isDay !== mode; window.__isDay = mode;
@@ -6485,14 +6482,14 @@ function applyTheme(day) {
   else if (typeof applyLinkLook === 'function') applyLinkLook(!!day);
   if (typeof applyState === 'function' && typeof grpMark !== 'undefined') applyState();
   const fx = [[ringN, 0.5, 0.22], [ringN2, 0.38, 0.16], [arcT, 0.75, 0.4], [coreT, 0.9, 0.45]];
-  fx.forEach(([im, n0, d0]) => { if (im && im.material.uniforms) im.material.uniforms.uAlpha.value = day ? d0 : n0; });
+  fx.forEach(([im, n0, d0]) => { if (im && im.material.uniforms) im.material.uniforms.uAlpha.value = day ? d0 : br ? Math.min(1, n0 * 1.3) : n0; });
   if (bloom) {
-    const strength = br ? 0.04 : day ? 0.08 : 0.2;
+    const strength = br ? 0.3 : day ? 0.08 : 0.2;
     bloom.strength = strength;
     const sl = $('#bloom'); if (sl) { sl.value = String(Math.round(strength * 100)); $('#bloomV').textContent = sl.value + '%'; }
   }
   const bt = $('#bTheme');
-  if (bt) { bt.textContent = br ? '✦ 明亮' : day ? '☀ 日间' : '☾ 夜间'; bt.title = '主题:夜间 → 日间 → 明亮(快捷键 M)'; bt.classList.toggle('on', !!day); }
+  if (bt) { bt.textContent = br ? '✦ 明亮' : day ? '☀ 日间' : '☾ 夜间'; bt.title = '主题:夜间 → 日间 → 明亮(快捷键 M)'; bt.classList.toggle('on', day || br); }
   try { localStorage.setItem('range-theme', mode); } catch (e) {}
 }
 window.__setDay = applyTheme;
