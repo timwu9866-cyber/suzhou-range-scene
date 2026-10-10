@@ -4163,12 +4163,15 @@ const PARAMS = {
   L3_PAD: 1.00,       // 最外圈节点中心 → 三级框边(四边相同、所有组相同)
   L3_GAP: 1.15,       // 三级框之间的间隔(左右;前后再乘 Z_MUL)
   L2_PAD: 0.55,       // 最外圈三级框/承载块 → 二级框边(四边相同)
-  L2_TOP: 0.75,       // 二级框顶边额外留给二级名字的高度(顶边 PAD = L2_PAD + L2_TOP)
+  L2_TOP: 1.20,       // 二级框【底边】额外留给贴边名字的高度(底边 PAD = L2_PAD + L2_TOP;名字平铺在等距视角左下边内侧)
+  L3_LBL: 0.95,       // 三级框底边额外留给贴边名字的高度(底边 PAD = L3_PAD + L3_LBL)
+  LBL_H: { zone: 1.20, sub: 1.00, grp: 0.75 }, // 贴边名字字高(世界单位,等距视角下已含纵深拉伸;须 < 对应底边留白)
+  LBL_IN: 0.12,       // 名字到所在边的内缩
   L2_CORNER: 0.55,    // 二级框角标臂长参考(几何贴边向内,不再外伸;保留参数供布局/验收引用)
-  L2_GAP: 1.80,       // 二级框之间的间隔(框边到框边,左右;前后再乘 Z_MUL)
-  L1_PAD: 1.00,       // 最外圈二级框/承载块 → 一级虚线框边(四边相同)
+  L2_GAP: 1.70,       // 二级框之间的间隔(框边到框边,左右;前后再乘 Z_MUL)
+  L1_PAD: 1.45,       // 最外圈二级框/承载块 → 一级虚线框边(四边相同)
   L1_GAP: 2.10,       // 一级虚线框之间的间隔(左右;前后再乘 Z_MUL)
-  DOMAIN_GAP: 2.50,   // 阵营A / 公共域 / 阵营B 之间的间隔
+  DOMAIN_GAP: 2.30,   // 阵营A / 公共域 / 阵营B 之间的间隔
   Z_MUL: 1.41,        // 前后(纵深)方向间隔倍数:等距视角下前排设备高度会挡到后排框,实测 1.3 时前后相邻三级框屏幕重叠 44 对,1.5 时为 0
   ROUTE_CLEAR: 0.60,  // 流向线与非端点区域(一级/二级/三级)轮廓的最小距离:障碍向外膨胀这么多,线贴着轮廓平行绕行
 };
@@ -4717,7 +4720,8 @@ function layout(nodes, carriers, opt) {
     }
     function leaf(g) { // 三级框 / 承载块:尺寸 = 节点网格实际范围 + 2 × PAD,节点严格居中
       const n = g.members.length, P = g.car ? PR.CAR_PITCH : PITCH_N, pad = PR.L3_PAD;
-      const vars = colOpts(n).map(c => { const r = Math.ceil(n / c); return { c, r, w: (Math.min(c, n) - 1) * P + 2 * pad, h: (r - 1) * P + 2 * pad }; });
+      const xb = g.car ? 0 : PR.L3_LBL; // 三级框底边多留名字条
+      const vars = colOpts(n).map(c => { const r = Math.ceil(n / c); return { c, r, w: (Math.min(c, n) - 1) * P + 2 * pad, h: (r - 1) * P + 2 * pad + xb }; });
       return { kind: g.car ? 'car' : 'grp', g, n, vars, name: g.car ? '承载' : g.name,
         place(x0, z0, v) { const loc = []; for (let i = 0; i < n; i++) loc.push([x0 + pad + (i % v.c) * P, z0 + pad + Math.floor(i / v.c) * P]);
           g.x = 0; g.z = 0; g.local = loc; g.w = (Math.min(v.c, n) - 1) * P; g.h = (v.r - 1) * P; g.cols = v.c; this.rect = [x0, z0, x0 + v.w, z0 + v.h]; g.cell = this.rect.slice(); } };
@@ -4764,7 +4768,7 @@ function layout(nodes, carriers, opt) {
     zones.filter(z => z.items.length).forEach(z => {
       const bySub = {}, carsIn = [];
       z.items.forEach(g => { if (g.car) carsIn.push(g); else (bySub[g.sub] = bySub[g.sub] || []).push(g); });
-      const items = Object.keys(bySub).sort().map(sn => { const s = box('sub', sn, bySub[sn].map(leaf), G3X, G3Z, PR.L2_PAD, PR.L2_PAD + PR.L2_TOP, PR.L2_PAD, PR.L2_PAD, TN.MS || 3, (a, b) => b.n - a.n || (a.name < b.name ? -1 : 1)); s.key = z.dom + '\0' + z.name + '\0' + sn; return s; });
+      const items = Object.keys(bySub).sort().map(sn => { const s = box('sub', sn, bySub[sn].map(leaf), G3X, G3Z, PR.L2_PAD, PR.L2_PAD, PR.L2_PAD, PR.L2_PAD + PR.L2_TOP, TN.MS || 3, (a, b) => b.n - a.n || (a.name < b.name ? -1 : 1)); s.key = z.dom + '\0' + z.name + '\0' + sn; return s; });
       carsIn.forEach(g => items.push(leaf(g)));
       const zb = box('zone', z.name, items, G2X, G2Z, PR.L1_PAD, PR.L1_PAD, PR.L1_PAD, PR.L1_PAD, TN.MZ || 2);
       zb.z = z; zoneBoxes[z.k] = zb;
@@ -4915,8 +4919,8 @@ function layout(nodes, carriers, opt) {
     const rectsOf = its => its.map(a => [a.x0 - P1, a.z0 - P1, a.x1 + P1, a.z0 + a.h + P1]);
     function cornerCov(rs) { let U0 = 1e9, U1 = -1e9, D0 = 1e9, D1 = -1e9;
       rs.forEach(r => [[r[0], r[1]], [r[2], r[1]], [r[0], r[3]], [r[2], r[3]]].forEach(([x, z]) => { const u = ca * x - sa * z, d = sa * x + ca * z; U0 = Math.min(U0, u); U1 = Math.max(U1, u); D0 = Math.min(D0, d); D1 = Math.max(D1, d); }));
-      const cu = (TN.CU || 0.14) * (U1 - U0), cd = (TN.CD || 0.1) * (D1 - D0), N = 8, out = [];
-      const cuR = cu * (TN.CUR || 1), cdT = cd * (TN.CDT || 1);
+      const cu = (TN.CU || 0.14) * (U1 - U0), cd = (TN.CD || 0.14) * (D1 - D0), N = 8, out = [];
+      const cuR = cu * (TN.CUR || 1.6), cdT = cd * (TN.CDT || 1);
       [[U0, D0, cu, cdT], [U1 - cuR, D0, cuR, cdT], [U0, D1 - cd, cu, cd], [U1 - cuR, D1 - cd, cuR, cd]].forEach(([u0, d0, cu, cd]) => { let hit = 0;
         for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const u = u0 + (i + 0.5) / N * cu, d = d0 + (j + 0.5) / N * cd, x = ca * u + sa * d, z = -sa * u + ca * d; if (rs.some(r => x > r[0] && x < r[2] && z > r[1] && z < r[3])) hit++; }
         out.push(hit / (N * N)); });
@@ -4927,7 +4931,7 @@ function layout(nodes, carriers, opt) {
       for (const ds of (TN.DS == null ? [0, 0.03, 0.06, 0.1] : [TN.DS])) {
         const D = D00 * (1 + ds), Rs = COLS.map((c, t) => Object.assign(Rof(D, sol.xs[t][0], sol.xs[t][1], c.f), { side: c.side }));
         const mid = []; let okMid = true; for (let t = 1; t < nC - 1; t++) { const r = runCol(COLS[t].seq, Rs[t], 0); if (!r) { okMid = false; break; } mid.push(...rectsOf(r.its)); }
-        const opt = t => { const o = []; for (let off = 0; off <= (TN.OFFMAX || 24); off += 0.75) { const r = runCol(COLS[t].seq, Rs[t], off); if (r) o.push({ off, rs: rectsOf(r.its) }); } return o; };
+        const opt = t => { const o = []; for (let off = 0; off <= (TN.OFFMAX || 40); off += 0.75) { const r = runCol(COLS[t].seq, Rs[t], off); if (r) o.push({ off, rs: rectsOf(r.its) }); } return o; };
         if (!okMid) continue; const oA = opt(0), oB = opt(nC - 1);
         oA.forEach(a => oB.forEach(b => { const cv = cornerCov(a.rs.concat(mid, b.rs)), sc = Math.min(...cv) + 0.1 * cv.reduce((x, y) => x + y, 0) - 0.4 * ds; if (!bestAll || sc > bestAll.sc) bestAll = { sc, cv, a: a.off, b: b.off, D }; }));
       }
@@ -4986,6 +4990,13 @@ function layout(nodes, carriers, opt) {
       for (let t = 1; t < sp.length; t++) { // 相邻条带之间取横向重叠最大的一对框做直角桥接(只一座桥,不围出洞)
         let bb = null; sp[t - 1].rs.forEach(a => sp[t].rs.forEach(b => { const o0 = Math.max(a[0], b[0]), o1 = Math.min(a[2], b[2]); if (o1 - o0 > 1e-6 && (!bb || o1 - o0 > bb.o1 - bb.o0)) bb = { o0, o1, a, b }; }));
         if (bb && bb.b[1] > bb.a[3]) rs.push([bb.o0, bb.a[3], bb.o1, bb.b[1]]); }
+      { // 片段之间围出的小空洞(四周都是本区片段)直接补上,一级轮廓保持单一闭合
+        const xs = [...new Set(rs.flatMap(r => [r[0], r[2]]))].sort((a, b) => a - b), zs = [...new Set(rs.flatMap(r => [r[1], r[3]]))].sort((a, b) => a - b), W = xs.length - 1, Hh = zs.length - 1;
+        const fill = (i, j) => { const x = (xs[i] + xs[i + 1]) / 2, z = (zs[j] + zs[j + 1]) / 2; return rs.some(r => r[0] < x && x < r[2] && r[1] < z && z < r[3]); };
+        const out = new Set(), q = []; for (let i = -1; i <= W; i++) q.push([i, -1], [i, Hh]); for (let j = -1; j <= Hh; j++) q.push([-1, j], [W, j]);
+        while (q.length) { const [i, j] = q.pop(), k = i + ',' + j; if (out.has(k) || i < -1 || j < -1 || i > W || j > Hh) continue; if (i >= 0 && j >= 0 && i < W && j < Hh && fill(i, j)) continue; out.add(k); q.push([i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]); }
+        for (let i = 0; i < W; i++) for (let j = 0; j < Hh; j++) if (!out.has(i + ',' + j) && !fill(i, j)) rs.push([xs[i], zs[j], xs[i + 1], zs[j + 1]]);
+      }
       const U = unionPoly(rs); zonePoly[zk] = U.poly; zoneLoops[zk] = U.loops; zoneArea[zk] = +U.area.toFixed(3); zonePieces[zk] = rs;
       let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; rs.forEach(r => { x0 = Math.min(x0, r[0]); z0 = Math.min(z0, r[1]); x1 = Math.max(x1, r[2]); z1 = Math.max(z1, r[3]); });
       zoneRects[zk] = [x0, z0, x1, z1]; zoneDash[zk] = [x0, z0, x1, z1];
@@ -5083,8 +5094,37 @@ function layout(nodes, carriers, opt) {
   for (let i = 0; i < all.length; i++) { if (!isFinite(all[i].x) || !isFinite(all[i].z)) nan++; for (let j = i + 1; j < all.length; j++) { const dx = all[i].x - all[j].x, dz = all[i].z - all[j].z; if (Math.abs(dx) > 2.4 || Math.abs(dz) > 2.4) continue; const d = Math.hypot(dx, dz); minD = Math.min(minD, d); const lim = (all[i].f + all[j].f) / 2; if (Math.abs(dx) < lim && Math.abs(dz) < lim) coll++; } }
   const L = { U, HY, nodes: NP, carriers: CP, boards, fail, campRatio: +BR.aspect.toFixed(3), zoneRatio: 0, pubRatio: 1.7, campEff: 0, eff: 0, aspect: +BR.aspect.toFixed(3), plateFill: 0, spread: 1, disperse: BR.disperse, seam: BR.seam, pitch: BR.pitch, grid: BR.grid, packMs: BR.packMs, nFill: BR.nFill, gridEx: BR.gridEx, dbg: BR.dbg, def: BR.def, snapped: BR.snapped || 0, seamZ: BR.seamZ, padX: PARAMS.L3_PAD, padZ: PARAMS.L3_PAD, params: PARAMS, minSpacing: +minD.toFixed(3), collisions: coll, nan, tree: T, domLabel,
     shape: { aspect: +BR.aspect.toFixed(3), world: { w: +BR.W.toFixed(2), h: +BR.H.toFixed(2) }, hole: +BR.hole.toFixed(3), A: { w: +bA.x1.toFixed(2), h: +(bA.z1 - bA.z0).toFixed(2), rects: 1 }, B: { w: +(bB.x1 - bB.x0).toFixed(2), h: +(bB.z1 - bB.z0).toFixed(2), depthRatio: +((bB.z1 - bB.z0) / Math.max(1, bB.x1 - bB.x0)).toFixed(2) }, P: { w: +pCamp.w.toFixed(2), h: +pCamp.h.toFixed(2) }, gapAB: BR.GAPX, arr: arrCount, zoneAspect, preset: { ia: BR.ia, ib: BR.ib, host: BR.host } } };
+  L.boards.forEach(b => { if (b.level === 'zone') b.cnt = nodes.filter(n => n['域'] === b.dom && n['一级区域'] === b.name).length; });
+  labelEdges(L);
   L.ms = +(((typeof performance !== 'undefined' ? performance : Date).now()) - t0).toFixed(2);
   return L;
+}
+/* 区域名贴边:等距视角(az 24°)下屏幕左下边 = 世界前沿(z 最大的一条水平边,外侧朝 +z),名字沿 +x 平铺在该边内侧。
+   一级取多边形所有「外侧朝 +z」的水平边里最靠屏幕左下(-x、+z)且够长的一条。 */
+function labelEdges(L) {
+  const g = L.grid; if (!g) return; const H = PARAMS.LBL_H, IN = PARAMS.LBL_IN; const out = [];
+  const inR = (x, z, rs) => rs.some(r => x > r[0] + 1e-9 && x < r[2] - 1e-9 && z > r[1] + 1e-9 && z < r[3] - 1e-9);
+  L.boards.forEach(b => {
+    let e = null;
+    if (b.level === 'grp' && b.rings && b.rings[0]) { const r = b.rings[0]; let x0 = 1e9, x1 = -1e9, z1 = -1e9; r.forEach(p => { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z1 = Math.max(z1, p[1]); }); e = { x0, x1, z: z1 }; }
+    else if (b.level === 'sub') { const r = (g.subFrames || {})[b.dom + '\0' + b.zone + '\0' + b.name]; if (r) e = { x0: r[0], x1: r[2], z: r[3] }; }
+    else if (b.level === 'zone') { const rs = (g.zonePieces || {})[b.dom + '\0' + b.name]; if (rs) {
+      const zs = [...new Set(rs.map(r => +r[3].toFixed(6)))]; const cand = [];
+      zs.forEach(z => { // 该 z 上所有片段底边的并集,再去掉被其它片段盖住(外侧不是空)的部分
+        const xs = [...new Set(rs.filter(r => Math.abs(r[3] - z) < 1e-6).flatMap(r => [r[0], r[2]]).concat(rs.flatMap(r => [r[0], r[2]])))].sort((a, c) => a - c);
+        let cur = null; for (let i = 0; i + 1 < xs.length; i++) { const m = (xs[i] + xs[i + 1]) / 2, ok = inR(m, z - 0.01, rs) && !inR(m, z + 0.01, rs);
+          if (ok) { if (cur && Math.abs(cur.x1 - xs[i]) < 1e-9) cur.x1 = xs[i + 1]; else { cur = { x0: xs[i], x1: xs[i + 1], z }; cand.push(cur); } } else cur = null; } });
+      const need = (b.name.length + 2) * H.zone / 1.89 + 0.6;
+      cand.sort((a, c) => ((c.x1 - c.x0 >= need) - (a.x1 - a.x0 >= need)) || ((-8.9 * a.x0 + 11.4 * a.z) < (-8.9 * c.x0 + 11.4 * c.z) ? 1 : -1));
+      e = cand[0] || null; } }
+    if (!e) return;
+    // 字条宽度:字高 h(含纵深拉伸 1.89)→ 屏幕字号 em = h/1.89;中文 1em、其它 0.6em,左右各 0.225em 留白;边不够长整体等比缩小
+    const txt = b.level === 'zone' ? b.name + '  ' + (b.cnt || '') : b.name, em = H[b.level] / 1.89 * 0.8;
+    let w = [...txt].reduce((s, ch) => s + (ch.charCodeAt(0) > 255 ? 1 : 0.6), 0) * em + 2 * 0.225 * H[b.level] / 1.89, h = H[b.level];
+    const room = e.x1 - e.x0 - 0.5; if (w > room) { h *= room / w; w = room; }
+    b.le = { x0: e.x0, x1: e.x1, z: e.z, h, inset: IN, lx0: e.x0 + 0.25, lx1: e.x0 + 0.25 + w, lz0: e.z - IN - h, lz1: e.z - IN, txt }; out.push(b.le);
+  });
+  L.labelEdgeCount = out.length;
 }
 function carStyle(c) { const t = c['类型']; if (/防火墙/.test(t)) return 'NET-FW'; if (/核心/.test(t)) return 'NET-CORE'; if (/汇聚/.test(t)) return 'NET-AGG'; return 'NET-ACC'; }
 
@@ -5163,7 +5203,9 @@ function routeLinks(L, nodes, carriers, links, opt) {
       const ob = []; REG.forEach(R => { if (!al.has(R.k)) ob.push(ex(R.r, CL)); });
       Object.entries(DOMBOX).forEach(([d, r]) => { if (d !== S.dom && d !== E.dom) ob.push(ex(r, CL)); }); // 跨阵营只经公共域
       devs.forEach(d => { if (d === S || d === E) return; const own = allowedKeys(L, d); let inside = false; own.forEach(k => { if (k.split('\0').length > 2 && al.has(k)) inside = true; }); if (!inside) return; const hh = d.f / 2 + ROUTE.DEV; ob.push([d.x - hh, d.z - hh, d.x + hh, d.z + hh]); });
-      ROUTE.CL0 = PARAMS.ROUTE_CLEAR; for (const mf of [0.3, 0.45, 0.7, 1.5]) { path = laneRoute(S, E, ob, NEAR, USED, PARAMS, mf); if (path) break; }
+      const obL = ob.slice(); B.forEach(b => { const q = b.le; if (q) obL.push([q.lx0 - 0.1, q.lz0 - 0.1, q.lx1 + 0.1, q.lz1 + 0.1]); }); // 区域名字条也是障碍(线不压字)
+      ROUTE.CL0 = PARAMS.ROUTE_CLEAR; for (const mf of [0.3, 0.45, 0.7, 1.5]) { path = laneRoute(S, E, obL, NEAR, USED, PARAMS, mf); if (path) break; }
+      if (path) { ob.length = 0; obL.forEach(r => ob.push(r)); } else for (const mf of [0.3, 0.45, 0.7, 1.5]) { path = laneRoute(S, E, ob, NEAR, USED, PARAMS, mf); if (path) break; }
       if (path) { path = simplifyPath(mergeCol(path), ob, null); OB = ob; }
     } else path = dijkstra(obs, [S.x, S.z], [E.x, E.z]);
     if (!path) { fail.push(label + ' 无可行路径'); out.push({ id: label, ok: false }); return; }
@@ -6232,17 +6274,62 @@ const DOMROLE = { '公共域': '互联网入口', '阵营A「零日」': '企业
 const LBLON = { dom: true, zone: true, sub: true, grp: true, car: true, node: true };
 function addLabel(kind, html, wp, color, extra) { const el = document.createElement('div'); el.className = 'lbl lbl-' + kind; el.innerHTML = html; if (color) el.style.setProperty('--c', color); lblHost.appendChild(el); const o = Object.assign({ el, kind, wp, shown: false }, extra || {}); LBL.push(o); return o; }
 const cntBy = (f) => nodes.filter(f).length;
+/* ---------- 区域名贴边平铺:一级/二级/三级名字沿等距视角左下边(世界前沿 z1)平铺在边内侧的名字条里 ----------
+   字面朝上贴地,纵深方向按相机仰角拉伸(等距 1/sin32°≈1.89,顶视 1),屏幕上字形不压扁;日夜两套字色 + 底牌。 */
+const EDGE_LBL = true;
+const gEdge = new T.Group(); scene.add(gEdge); const EL = [];
+const ELFONT = '600 64px "PingFang SC","Microsoft YaHei","Noto Sans CJK SC","Source Han Sans SC",sans-serif';
+function edgeText(b) { if (b.level === 'zone') return b.name + '  ' + cntBy(n => n['域'] === b.dom && n['一级区域'] === b.name); return b.name; }
+function edgeColor(b) { return b.level === 'grp' ? '#CBD5E1' : areaColor(b.dom, b.zone, b.level === 'sub' ? b.name : ''); }
+function buildEdgeLabels() {
+  EL.forEach(e => { gEdge.remove(e.m); e.m.geometry.dispose(); e.m.material.map.dispose(); e.m.material.dispose(); }); EL.length = 0;
+  L.boards.forEach(b => { const le = b.le; if (!le) return;
+    const txt = le.txt || edgeText(b), cv = document.createElement('canvas'), cx = cv.getContext('2d'); cx.font = ELFONT;
+    const H = 80, wx = le.lx1 - le.lx0, hzz = le.lz1 - le.lz0; cv.width = Math.max(40, Math.round(H * wx / (hzz / 1.89))); cv.height = H; // 字条尺寸由布局给定(布局据此避让流向线)
+    const tex = new T.CanvasTexture(cv); tex.colorSpace = T.SRGBColorSpace; tex.anisotropy = 8; tex.minFilter = T.LinearMipmapLinearFilter;
+    const mat = new T.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, toneMapped: false });
+    const hz = hzz, k = 1;
+    const geo = new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, -0.5); // 原点在左下(朝相机一侧),向 +x 铺、向 -z(区域内侧)长
+    const m = new T.Mesh(geo, mat); m.renderOrder = 6;
+    const y = b.level === 'zone' ? HY.ZONE1 + 0.02 : b.level === 'sub' ? HY.SUB1 + 0.02 : HY.GRP1 + 0.008;
+    m.position.set(le.lx0, y, le.lz1); m.userData = { b, cv, txt, hz: hz * k, wx, k };
+    m.scale.set(wx, 1, hz * k); gEdge.add(m);
+    EL.push({ m, b, kind: b.level, cv, txt, wx, hz: hz * k, x0: le.lx0, z: le.lz1 });
+  });
+  edgeTheme(document.body.classList.contains('day')); updateEdgeLabels(true);
+}
+function edgeTheme(day) {
+  EL.forEach(e => { const cv = e.cv, cx = cv.getContext('2d'), W = cv.width, H = cv.height, base = edgeColor(e.b);
+    cx.clearRect(0, 0, W, H); const r = 16;
+    cx.fillStyle = day ? 'rgba(248,250,252,0.94)' : 'rgba(8,15,30,0.80)';
+    cx.beginPath(); cx.moveTo(r, 4); cx.lineTo(W - r, 4); cx.quadraticCurveTo(W - 2, 4, W - 2, r); cx.lineTo(W - 2, H - r); cx.quadraticCurveTo(W - 2, H - 4, W - r, H - 4); cx.lineTo(r, H - 4); cx.quadraticCurveTo(2, H - 4, 2, H - r); cx.lineTo(2, r); cx.quadraticCurveTo(2, 4, r, 4); cx.fill();
+    cx.lineWidth = 4; cx.strokeStyle = day ? dayHex(base, 3.0, 0.3) : base; cx.globalAlpha = day ? 0.9 : 0.75; cx.stroke(); cx.globalAlpha = 1;
+    cx.font = ELFONT; cx.textBaseline = 'middle'; cx.fillStyle = day ? dayHex(base, 4.8, 0.45) : '#' + new T.Color(base).lerp(new T.Color('#FFFFFF'), e.kind === 'grp' ? 0.2 : 0.45).getHexString();
+    const avail = W - 2 * 0.225 * H, tw = cx.measureText(e.txt).width; if (tw > avail) { cx.font = ELFONT.replace('64px', Math.floor(64 * avail / tw) + 'px'); } cx.textAlign = 'center'; cx.fillText(e.txt, W / 2, H / 2 + 3); cx.textAlign = 'left';
+    e.m.material.map.needsUpdate = true; });
+}
+let elPrev = '';
+function updateEdgeLabels(force) {
+  const dir = new V3(); cam.getWorldDirection(dir); const s = Math.max(0.53, Math.min(1, -dir.y)), ZS = 1 / s; // 仰角越低拉得越长,上限按等距留白
+  const key = ZS.toFixed(3) + '|' + C.ppu.toFixed(2) + '|' + (S.dom || '') + '|' + LBLON.zone + LBLON.sub + LBLON.grp;
+  if (!force && key === elPrev) return; elPrev = key;
+  EL.forEach(e => { const hz = e.hz * (ZS / 1.89); e.m.scale.z = hz; e.m.scale.x = e.wx;
+    const px = e.hz / 1.89 * C.ppu; // 屏幕字高(像素)
+    let on = LBLON[e.kind] && px >= (e.kind === 'grp' ? 7 : 6); if (S.dom && e.b.dom !== S.dom) on = false; e.m.visible = on; });
+}
+window.__edgeLabels = () => EL.map(e => ({ kind: e.kind, dom: e.b.dom, zone: e.b.zone, name: e.b.name, x0: e.x0, x1: e.x0 + e.wx, z0: e.z - e.hz, z1: e.z, edge: e.b.le, vis: e.m.visible }));
 function buildHeadLabels() {
 L.boards.forEach(b => {
   const c = DOMC[b.dom];
   if (b.level === 'dom') { const dl = (L.domLabel || {})[b.dom] || { x: b.x0 + 0.9, z: b.oz1 + 0.15, anchor: 'lt' }; // v3:域大标题位置由布局层按域形态给出
     addLabel('dom', esc(b.dom) + '<small>' + (DOMROLE[b.dom] ? DOMROLE[b.dom] + ' · ' : '') + cntBy(n => n['域'] === b.dom) + ' 节点 · 靶标 ' + cntBy(n => n['域'] === b.dom && n['是否靶标'] === '是') + ' · 承载 ' + carriers.filter(x => x['所属域'] === b.dom).length + '</small>', new V3(dl.x, HY.DOM1, dl.z), c, { anchor: dl.anchor, dom: b.dom }); }
+  if (EDGE_LBL && (b.level === 'zone' || b.level === 'sub' || b.level === 'grp')) return; // 区域名改为贴左下边平铺(见 buildEdgeLabels)
   if (b.level === 'zone') addLabel('zone', esc(b.name) + '<small>' + cntBy(n => n['域'] === b.dom && n['一级区域'] === b.name) + '</small>', new V3(b.lx != null ? b.lx : (b.x0 + b.x1) / 2, HY.ZONE1, b.lz != null ? b.lz : (b.z0 + b.z1) / 2), (ZCOL[b.dom] && ZCOL[b.dom][b.name]) || c, { anchor: 'cb', dom: b.dom, zone: b.name });
   if (b.level === 'sub') addLabel('sub', esc(b.name), new V3((b.x0 + b.x1) / 2, HY.SUB1, b.z0), areaColor(b.dom, b.zone, b.name), { anchor: 'cb', dom: b.dom, zone: b.zone });
   if (b.level === 'grp') addLabel('grp', esc(b.name), new V3(b.cx != null ? b.cx : (b.x0 + b.x1) / 2, HY.GRP1, b.cz != null ? b.cz : (b.z0 + b.z1) / 2), c, { anchor: 'cb', dom: b.dom, zone: b.zone });
 });
 }
-buildHeadLabels();
+buildHeadLabels(); buildEdgeLabels();
 // 承载设备中文角色(短名),跟在设备名后面
 function carRole(t) { t = String(t || ''); if (/核心.*交换/.test(t)) return '核心交换'; if (/汇聚/.test(t)) return '汇聚交换'; if (/接入交换/.test(t)) return '接入交换'; if (/域间/.test(t)) return '域间防火墙'; if (/DMZ|边界/.test(t)) return '边界防火墙'; if (/东西向/.test(t)) return '东西向防火墙'; if (/防火墙/.test(t)) return t.replace(/区?防火墙$/, '') + '防火墙'; if (/路由/.test(t)) return '路由器'; return t; }
 devices.forEach(d => {
@@ -6255,6 +6342,7 @@ const devLbls = LBL.filter(l => l.kind === 'node' || l.kind === 'car');
 const nodeLbls = LBL.filter(l => l.kind === 'node').sort((a, b) => b.pri - a.pri || a.dev.j - b.dev.j);
 let lblStat = { shown: 0 };
 function updateLabels() {
+  updateEdgeLabels();
   if (!labelsDirty && !camDirty) return; labelsDirty = false; camDirty = false;
   const occ = new Map(), CELL = 32; const W = C.W, H = C.H; let shown = 0;
   const occupy = (x0, y0, x1, y1) => { for (let gx = Math.floor(x0 / CELL); gx <= Math.floor(x1 / CELL); gx++) for (let gy = Math.floor(y0 / CELL); gy <= Math.floor(y1 / CELL); gy++) { const k = gx * 4096 + gy; (occ.get(k) || occ.set(k, []).get(k)).push([x0, y0, x1, y1]); } };
@@ -6360,7 +6448,7 @@ function applyTheme(day) {
   grpGrids.forEach(m => { m.color.set(day ? 0x64748B : 0xcbd5e1); m.opacity = day ? 0.38 : 0.42; });
   roadMats.forEach(m => { m.color.set(day ? 0xcbd5e1 : 0x1e293b); m.opacity = day ? 0.9 : 0.95; });
   Object.values(matCache).forEach(m => m.uniforms.uColor.value.copy(day ? m.userData.day : m.userData.night));
-  LBL.forEach(l => { l.mw = 0; });
+  LBL.forEach(l => { l.mw = 0; }); if (typeof edgeTheme === 'function') edgeTheme(!!day);
   const dayChanged = window.__isDay !== !!day; window.__isDay = !!day;
   if (dayChanged && typeof buildLinks === 'function' && LK.length) { buildLinks(); if (typeof applyState === 'function') applyState(); }
   else if (typeof applyLinkLook === 'function') applyLinkLook(!!day);
@@ -6405,7 +6493,7 @@ function syncDevices() {
 }
 function refreshLabels() {
   for (let i = LBL.length - 1; i >= 0; i--) if (LBL[i].kind !== 'node' && LBL[i].kind !== 'car') { LBL[i].el.remove(); LBL.splice(i, 1); }
-  buildHeadLabels();
+  buildHeadLabels(); buildEdgeLabels();
   devices.forEach(d => { if (!d.lbl) return; d.lbl.wp.set(d.x, HY.NODE_Y + d.H + (d.car ? 0.08 : (d.isT ? 0.42 : 0.1)), d.z); });
   labelsDirty = true;
 }
