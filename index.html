@@ -8,7 +8,7 @@
 <style>
 /* 面板 / HUD 风格沿用「网络安全事件大全」css/app.css */
 /* Archify 语义色(DESIGN.md):canvas/mask/border/ink/muted/dim + frontend/backend/database/cloud/security/messagebus/external */
-:root{--bg:#020617;--panel:#0F172A;--line:#1E293B;--ink:#FFFFFF;--muted:#94A3B8;--note:#475569;--red:#FF2D4A;--cyan:#22D3EE;--green:#34D399;--amber:#FBBF24;--orange:#FB923C;--blue:#94A3B8;--vio:#A78BFA;--dim:#94A3B8;--txt:#FFFFFF;--mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,"DejaVu Sans Mono","Noto Sans CJK SC",monospace;--r-btn:.5rem;--r-pnl:1rem}
+:root{--bg:#020617;--panel:#0F172A;--line:#1E293B;--ink:#FFFFFF;--muted:#94A3B8;--note:#475569;--red:#D9546A;--cyan:#22D3EE;--green:#34D399;--amber:#FBBF24;--orange:#FB923C;--blue:#94A3B8;--vio:#A78BFA;--dim:#94A3B8;--txt:#FFFFFF;--mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,"DejaVu Sans Mono","Noto Sans CJK SC",monospace;--r-btn:.5rem;--r-pnl:1rem}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:"Noto Sans CJK SC","Noto Sans SC","Microsoft YaHei","PingFang SC","Hiragino Sans GB","WenQuanYi Micro Hei","Segoe UI",sans-serif;overflow:hidden;font-size:14px}
 #app{display:flex;flex-direction:column;height:100%}
@@ -3984,12 +3984,12 @@ const HGT = { H1: 0.20, H2: 0.34, H3: 0.50, H4: 0.68, H5: 0.90 };
 const ROLES = ['base', 'body', 'face', 'port', 'led', 'detail'];
 /* 大类配色:Archify 语义色(external 灰 / security 玫红 / backend 绿 / cloud 琥珀 / frontend 青 / database 紫) */
 const CAT = { // 参照 Unity APT-4K-2026 设备材质:网络设备(绿)/安全设备(蓝)/应用设备(黄)/白色(PC 终端);云原生取虚线区域橙,物联网取 TopologyGenerator IoT 青
-  '网络设备': { main: '#22E04A', light: '#8CFF9E', key: 'net' },
-  '安全设备': { main: '#00A5FF', light: '#80D2FF', key: 'sec' },
-  '服务器存储': { main: '#FFBF00', light: '#FFDF80', key: 'srv' },
-  '云原生': { main: '#FF8600', light: '#FFC380', key: 'cn' },
-  '终端接入': { main: '#E2E8F0', light: '#FFFFFF', key: 'term' },
-  '物联网': { main: '#33CCCC', light: '#8CF5F5', key: 'iot' },
+  '网络设备': { main: '#6AAF7A', light: '#A8D8B2', key: 'net' },
+  '安全设备': { main: '#4F8FC0', light: '#9CC0DE', key: 'sec' },
+  '服务器存储': { main: '#C9A24E', light: '#E3CC94', key: 'srv' },
+  '云原生': { main: '#C7834F', light: '#E2B791', key: 'cn' },
+  '终端接入': { main: '#C9D1DB', light: '#FFFFFF', key: 'term' },
+  '物联网': { main: '#5BAFAF', light: '#A5D6D6', key: 'iot' },
 };
 const ROLE_FIX = { base: '#2E3742', port: '#151B24', detail: '#7C8B9E' };
 const hex = c => '#' + c.getHexString();
@@ -5583,15 +5583,15 @@ const HY = RL.HY;
 /* ---------- 调色板(与参考工程一致) ---------- */
 /* Archify 语义色:frontend 青 / backend 绿 / database 紫 / cloud 琥珀 / security 玫红 / messagebus 橙 / external 灰 */
 const ARC = { canvas: '#020617', mask: '#0F172A', border: '#1E293B', ink: '#FFFFFF', muted: '#94A3B8', dim: '#475569', frontend: '#22D3EE', backend: '#34D399', database: '#A78BFA', cloud: '#FBBF24', security: '#FB7185', messagebus: '#FB923C', external: '#94A3B8' };
-const PAL = { atk: '#FF2D4A', def: ARC.frontend, ok: ARC.backend, warn: '#FF2D4A', info: ARC.external, vio: ARC.database, bus: ARC.messagebus, cloud: ARC.cloud };
-const DOMC = { '公共域': '#7B8A8E', '阵营A「零日」': '#3B6CFF', '阵营B「溢出」': '#E5262B' }; // Unity 蓝色阵营 #0000FF / 作战区红 #D40000 提亮以便夜/日可读
+const PAL = { atk: '#D9546A', def: ARC.frontend, ok: ARC.backend, warn: '#D9546A', info: ARC.external, vio: ARC.database, bus: ARC.messagebus, cloud: ARC.cloud };
+const DOMC = { '公共域': '#7A868A', '阵营A「零日」': '#5A7BC4', '阵营B「溢出」': '#C0565A' }; // Unity 蓝色阵营 #0000FF / 作战区红 #D40000 提亮以便夜/日可读
 /* 区域底色:阵营分色相,同阵营内的一级区域(公共域按二级子区)再错开明度,半透明、不进辉光 */
 const ZCOL = {
   // 参照 Unity APT-4K-2026:各区「区域-虚线」材质(阵营A)/「区域-局部-虚线-发光」材质(阵营B,同色相略深/略偏)
-  '阵营A「零日」': { '接入区': '#00F0FF', 'DMZ': '#FFE700', '运维区': '#22FF22', '办公内网': '#48A7FF', '测试生产区': '#FF9C00', '核心区': '#B700FF' },
-  '阵营B「溢出」': { '接入区': '#00C8D6', 'DMZ': '#FFC800', '运维区': '#00D12C', '办公内网': '#0097FF', '测试生产区': '#FF7A00', '核心区': '#D400FF' },
+  '阵营A「零日」': { '接入区': '#4FB3BF', 'DMZ': '#C9B458', '运维区': '#6FB57A', '办公内网': '#5B8FC7', '测试生产区': '#C98A4B', '核心区': '#9670B8' },
+  '阵营B「溢出」': { '接入区': '#3E98A3', 'DMZ': '#B09A45', '运维区': '#4F9A60', '办公内网': '#4A78AE', '测试生产区': '#B57440', '核心区': '#8A5CA8' },
   // 公共域:Unity「未上线-区域」灰 + 「通用透明区域」青灰
-  '公共域': { '互联网用户模拟子区': '#B8C4C8', '公网接入子区': '#9AA8AC', '公共基础服务子区': '#7B8A8E', '企业业务平台子区': '#6B7B80', '流量仿真子区': '#A9B8BC', '公共互联网区': '#8FA3A8' },
+  '公共域': { '互联网用户模拟子区': '#B8C4C8', '公网接入子区': '#9AA8AC', '公共基础服务子区': '#7A868A', '企业业务平台子区': '#6B7B80', '流量仿真子区': '#A9B8BC', '公共互联网区': '#8FA3A8' },
 };
 function areaColor(dom, zone, sub) {
   const m = ZCOL[dom] || {};
@@ -5599,7 +5599,7 @@ function areaColor(dom, zone, sub) {
   return m[zone] || DOMC[dom];
 }
 const DOMK = { '公共域': 'pub', '阵营A「零日」': 'za', '阵营B「溢出」': 'yb' };
-const LINKC = { trunk: '#00AD35', mgmt: '#00A5FF', cross: '#FF2A00' };
+const LINKC = { trunk: '#3F9A6B', mgmt: '#4F8FC0', cross: '#C86A4A' };
 const LINKN = { trunk: '主干', mgmt: '管理·安全', cross: '跨阵营' };
 const CARC = ARC.muted;
 const FLOWS = {
@@ -5821,7 +5821,7 @@ Object.keys(subSeen).forEach(k => {
   seg(x1, z1, x1 - arm, z1); seg(x1, z1, x1, z1 - arm);
   window.__frames.l2[window.__frames.l2.length - 1].corners = segs;
   const cg = new T.BufferGeometry(); cg.setAttribute('position', new T.Float32BufferAttribute(cb, 3));
-  const cNight = lin(s2.hex).clone().lerp(lin('#FFFFFF'), 0.22);
+  const cNight = lin(s2.hex).clone().lerp(lin('#FFFFFF'), 0.08);
   const cDay = lin(s2.hex).clone().lerp(lin('#0F172A'), 0.32);
   const cMat = new T.LineBasicMaterial({ color: cNight, transparent: true, opacity: 1, depthWrite: false });
   cMat.userData = { night: cNight, day: cDay };
@@ -6030,7 +6030,7 @@ R.links.forEach((r, k) => {
 }
 buildLinks();
 function applyLinkLook(day) {
-  const C = { trunk: { laneN: '#00AD35', hotN: '#00FFFF', laneD: '#00752A', hotD: '#008F7A' }, mgmt: { laneN: '#00A5FF', hotN: '#80D2FF', laneD: '#0063A8', hotD: '#0077C8' }, cross: { laneN: '#FF2A00', hotN: '#FF8A4C', laneD: '#B91C1C', hotD: '#DC2626' } }; // Unity 网络路径 / 安全设备蓝 / 攻击路径
+  const C = { trunk: { laneN: '#3F9A6B', hotN: '#7CC4C0', laneD: '#2E6B4D', hotD: '#3A7F74' }, mgmt: { laneN: '#4F8FC0', hotN: '#9CC0DE', laneD: '#3A6A92', hotD: '#44779F' }, cross: { laneN: '#C86A4A', hotN: '#E0A080', laneD: '#B91C1C', hotD: '#DC2626' } }; // Unity 网络路径 / 安全设备蓝 / 攻击路径
   LK.forEach(l => {
     const c = C[l.grp] || C.trunk;
     const lane = lin(day ? c.laneD : c.laneN), hot = lin(day ? c.hotD : c.hotN);
