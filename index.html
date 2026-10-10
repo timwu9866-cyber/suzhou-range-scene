@@ -141,6 +141,18 @@ body.day .lbl-car{font-size:10.5px;line-height:14px}body.day .lbl-car em{opacity
 body.day .lbl-node.t{color:#B4233F!important}body.day .lbl-node.t::before{color:#B4233F;text-shadow:0 0 0 #fff,-1px 0 #fff,1px 0 #fff,0 -1px #fff,0 1px #fff}
 body.day #legend{background:rgba(248,250,252,.96);border-color:#94A3B8;color:#0F172A}
 body.day .zlegend .zr b{filter:none}
+/* ---------- 明亮版:近白冷色、白底卡片 + 柔和投影、天蓝强调 ---------- */
+body.day.bright{--bg:#F2F6FB;--panel:#FFFFFF;--line:#DCE4EE;--dim:#334155;--txt:#0F172A;background:linear-gradient(180deg,#FAFCFF 0%,#EAF0F7 100%)}
+body.bright #toolbar{background:rgba(255,255,255,.92);border-bottom:1px solid #DCE4EE;box-shadow:0 2px 10px rgba(30,64,120,.06)}
+body.bright button,body.bright select,body.bright .chip{background:#FFFFFF;border-color:#C9D6E6;box-shadow:0 1px 2px rgba(30,64,120,.06)}
+body.bright button.on,body.bright .chip.on{background:#E3F0FF;color:#0B3D91!important;border-color:#2F6FD0;box-shadow:inset 0 0 0 1px #2F6FD0}
+body.bright #bTheme{background:#FFF7E0;border-color:#E2B33C;color:#6B4A00}
+body.bright #panel,body.bright #legend,body.bright #title,body.bright #tip,body.bright #cap{background:#FFFFFF;border-color:#DCE4EE;box-shadow:0 6px 24px rgba(30,64,120,.10)}
+body.bright .stats div,body.bright .dm,body.bright .fl,body.bright .lk,body.bright .badge,body.bright .crumb{background:#F6F9FD;border-color:#E2E9F2}
+body.bright .dm.on,body.bright .fl.on,body.bright .lk.on{background:#E3F0FF}
+body.bright .lbl-sub,body.bright .lbl-grp,body.bright .lbl-node,body.bright .lbl-car,body.bright .lbl-dom,body.bright .lbl-zone{background:#FFFFFF!important;box-shadow:0 1px 3px rgba(30,64,120,.14),0 0 0 1px #D5DFEB!important;border-color:#D5DFEB!important}
+body.bright .lbl-node.t{color:#B8233F!important}
+body.bright #q,body.bright #sres{background:#FFFFFF}
 </style>
 </head>
 <body>
@@ -5638,6 +5650,7 @@ const HY = RL.HY;
 /* Archify 语义色:frontend 青 / backend 绿 / database 紫 / cloud 琥珀 / security 玫红 / messagebus 橙 / external 灰 */
 const ARC = { canvas: '#020617', mask: '#0F172A', border: '#1E293B', ink: '#FFFFFF', muted: '#94A3B8', dim: '#475569', frontend: '#22D3EE', backend: '#34D399', database: '#A78BFA', cloud: '#FBBF24', security: '#FB7185', messagebus: '#FB923C', external: '#94A3B8' };
 const PAL_TD = '#B4233F'; // 日间靶标
+const PAL_TB = '#D0344F'; // 明亮版靶标(对 #EAF0F7 ≥ 4.5)
 const PAL = { atk: '#D9546A', def: ARC.frontend, ok: ARC.backend, warn: '#D9546A', info: ARC.external, vio: ARC.database, bus: ARC.messagebus, cloud: ARC.cloud };
 const DOMC = { '公共域': '#7A868A', '阵营A「零日」': '#5A7BC4', '阵营B「溢出」': '#C0565A' }; // Unity 蓝色阵营 #0000FF / 作战区红 #D40000 提亮以便夜/日可读
 /* 区域底色:阵营分色相,同阵营内的一级区域(公共域按二级子区)再错开明度,半透明、不进辉光 */
@@ -5655,9 +5668,16 @@ function crOf(a, b) { const x = relLum(a), y = relLum(b); return (Math.max(x, y)
 function dayTone(hex, minCR, t0) { const bg = new T.Color(DAYBG_HEX), ink = new T.Color('#0F172A'); let c = new T.Color(hex);
   for (let t = t0 || 0; t <= 0.92; t += 0.02) { c = new T.Color(hex).lerp(ink, t); if (crOf(c, bg) >= minCR) break; } return c; }
 const dayHex = (hex, minCR, t0) => '#' + dayTone(hex, minCR, t0).getHexString().toUpperCase();
+/* ---------- 明亮版:近白冷色渐变底(审计取较深一端 #EAF0F7),颜色先适度提饱和(×1.18,上限 0.62)再只按需压暗到对比度,
+   比日间(混入深墨、起步就压 30~50%)更清透鲜明,但不到霓虹 ---------- */
+const BRBG_HEX = '#EAF0F7';
+function brTone(hex, minCR) { const bg = new T.Color(BRBG_HEX), ink = new T.Color('#1E293B'), hsl = {}; const c0 = new T.Color(hex); c0.getHSL(hsl); c0.setHSL(hsl.h, Math.min(0.62, hsl.s * 1.18), hsl.l);
+  let c = c0.clone(); for (let t = 0; t <= 0.92; t += 0.02) { c = c0.clone().lerp(ink, t); if (crOf(c, bg) >= minCR) break; } return c; }
+const brHex = (hex, minCR) => '#' + brTone(hex, minCR).getHexString().toUpperCase();
+let THEME = 'night'; const isBright = () => THEME === 'bright';
 /* 主题相关的 HTML 颜色:CSS 变量,夜间原色、日间加深色 */
 const TC = {}; let tcStyle = null;
-function tcx(n, d) { const k = 'tc' + (n + d).replace(/#/g, ''); if (!TC[k]) { TC[k] = [n, d]; if (!tcStyle) { tcStyle = document.createElement('style'); document.head.appendChild(tcStyle); } tcStyle.textContent = ':root{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][0]).join(';') + '}body.day{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][1]).join(';') + '}'; } return 'var(--' + k + ')'; }
+function tcx(n, d, b) { const k = 'tc' + (n + d).replace(/#/g, ''); if (!TC[k]) { TC[k] = [n, d, b || brHex(n, 4.6)]; if (!tcStyle) { tcStyle = document.createElement('style'); document.head.appendChild(tcStyle); } tcStyle.textContent = ':root{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][0]).join(';') + '}body.day{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][1]).join(';') + '}body.day.bright{' + Object.keys(TC).map(q => '--' + q + ':' + TC[q][2]).join(';') + '}'; } return 'var(--' + k + ')'; }
 const tc = (hex, minCR) => tcx(hex, dayHex(hex, minCR || 3.2, 0.3));
 function areaColor(dom, zone, sub) {
   const m = ZCOL[dom] || {};
@@ -5743,10 +5763,10 @@ const CC = new T.Vector2((CB.x0 + CB.x1) / 2, (CB.z0 + CB.z1) / 2), CW = CB.x1 -
 {
   const SPAN = Math.max(CW, CD, 80);
   const grid = new T.Mesh(new T.PlaneGeometry(SPAN * 4.2, SPAN * 4.2), new T.ShaderMaterial({
-    uniforms: { uC: { value: new T.Vector2(CC.x, CC.y) }, uSpan: { value: new T.Vector2(Math.max(CW, 40), Math.max(CD, 40)) }, uTime: U.uTime, uDay: { value: 0 } },
+    uniforms: { uC: { value: new T.Vector2(CC.x, CC.y) }, uSpan: { value: new T.Vector2(Math.max(CW, 40), Math.max(CD, 40)) }, uTime: U.uTime, uDay: { value: 0 }, uBr: { value: 0 } },
     transparent: true, depthWrite: false, blending: T.AdditiveBlending,
     vertexShader: 'varying vec3 vW;void main(){vec4 w=modelMatrix*vec4(position,1.);vW=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;}',
-    fragmentShader: 'varying vec3 vW;uniform vec2 uC,uSpan;uniform float uTime,uDay;void main(){vec2 p=vW.xz-uC;vec2 g=abs(fract(p-.5)-.5)/fwidth(p);float l=1.-min(min(g.x,g.y),1.);vec2 g2=abs(fract(p/5.-.5)-.5)/fwidth(p/5.);float l2=1.-min(min(g2.x,g2.y),1.);float d=length(p/uSpan);float f=exp(-d*d*2.2);float line=l*.55+l2*.85;vec3 night=vec3(.2,.27,.38)*(l*.2+l2*.42)*f;vec4 day=vec4(vec3(.58,.64,.72), l2*f*.3);gl_FragColor=mix(vec4(night,1.), day, uDay);}',
+    fragmentShader: 'varying vec3 vW;uniform vec2 uC,uSpan;uniform float uTime,uDay,uBr;void main(){vec2 p=vW.xz-uC;vec2 g=abs(fract(p-.5)-.5)/fwidth(p);float l=1.-min(min(g.x,g.y),1.);vec2 g2=abs(fract(p/5.-.5)-.5)/fwidth(p/5.);float l2=1.-min(min(g2.x,g2.y),1.);float d=length(p/uSpan);float f=exp(-d*d*2.2);float line=l*.55+l2*.85;vec3 night=vec3(.2,.27,.38)*(l*.2+l2*.42)*f;vec4 day=vec4(mix(vec3(.58,.64,.72),vec3(.60,.70,.82),uBr), l2*f*mix(.3,.24,uBr)+l*f*.06*uBr);gl_FragColor=mix(vec4(night,1.), day, uDay);}',
   }));
   grid.rotation.x = -Math.PI / 2; grid.position.set(CC.x, -0.01, CC.y); grid.renderOrder = 0; scene.add(grid);
   groundGrid = grid;
@@ -5875,7 +5895,7 @@ Object.keys(subSeen).forEach(k => {
   const edgeNight = lin(s2.hex).multiplyScalar(0.92);
   const edgeDay = dayTone(s2.hex, 3.4, 0.48);
   const edgeMat = new T.LineBasicMaterial({ color: edgeNight, transparent: true, opacity: 0.62, depthWrite: false });
-  edgeMat.userData = { night: edgeNight, day: edgeDay };
+  edgeMat.userData = { night: edgeNight, day: edgeDay, bright: brTone(s2.hex, 3.4) };
   const line = new T.Line(lg, edgeMat);
   line.renderOrder = 4; line.frustumCulled = false; gBoards.add(line); subEdges.push(edgeMat);
   const arm = Math.min(1.55, Math.max(0.62, Math.min(x1 - x0, z1 - z0) * 0.34));
@@ -5892,7 +5912,7 @@ Object.keys(subSeen).forEach(k => {
   const cNight = lin(s2.hex).clone().lerp(lin('#FFFFFF'), 0.08);
   const cDay = dayTone(s2.hex, 3.6, 0.32);
   const cMat = new T.LineBasicMaterial({ color: cNight, transparent: true, opacity: 1, depthWrite: false });
-  cMat.userData = { night: cNight, day: cDay };
+  cMat.userData = { night: cNight, day: cDay, bright: brTone(s2.hex, 3.6) };
   const corners = new T.LineSegments(cg, cMat);
   corners.renderOrder = 5; corners.frustumCulled = false; gBoards.add(corners); subCorners.push(cMat);
 });
@@ -5924,7 +5944,7 @@ Object.keys(zoneSeen).forEach(zk => {
   const zHex = (ZCOL[z.dom] && ZCOL[z.dom][zk.split('\0')[1]]) || hex; // 日间:一级虚线按区域色相着色
   const day = dayTone(zHex, 3.6, 0.5);
   const m = new T.LineDashedMaterial({ color: night, dashSize: 0.85, gapSize: 0.55, transparent: true, opacity: 0.88, depthWrite: false });
-  m.userData = { night: night, day: day };
+  m.userData = { night: night, day: day, bright: brTone(zHex, 3.4) };
   const line = new T.Line(g, m);
   line.computeLineDistances();
   line.renderOrder = 3; line.frustumCulled = false; gBoards.add(line); zoneDash.push(m);
@@ -5952,7 +5972,7 @@ areaRects.forEach(b => {
   const gMat = new T.LineBasicMaterial({ color: 0xcbd5e1, transparent: true, opacity: 0.42, depthWrite: false });
   const grid = new T.LineSegments(gg, gMat);
   grid.renderOrder = 3; grid.frustumCulled = false; gBoards.add(grid); grpGrids.push(gMat);
-  grpMark.push({ fill, line, dim, day: dayC, dom: b.dom, zone: b.zone, sub: b.sub, name: b.name, hex: b.hex });
+  grpMark.push({ fill, line, dim, day: dayC, br: brTone(b.hex, 3.2), dom: b.dom, zone: b.zone, sub: b.sub, name: b.name, hex: b.hex });
 });
 window.__areaColors = {
   meshes: areaMeshN,
@@ -5972,7 +5992,8 @@ function devMat(cat, role) {
   const m = new T.ShaderMaterial({ uniforms: { uColor: { value: lin(RM.colorFor(cat, role)).multiplyScalar(role === 'led' ? 1.3 : role === 'face' ? 0.95 : 1.25) }, uRim: { value: main }, uRimK: { value: rimK }, uLam: { value: role === 'led' ? 0 : 1 } }, vertexShader: VS_DEV, fragmentShader: FS_DEV });
   const nC = m.uniforms.uColor.value.clone();
   const dC = role === 'body' ? main.clone().multiplyScalar(0.6) : role === 'face' ? main.clone().multiplyScalar(0.85) : nC.clone();
-  m.userData = { cat, role, night: nC, day: dC }; return (matCache[k] = m);
+  const bC = role === 'body' ? main.clone().lerp(new T.Color(1, 1, 1), 0.12) : role === 'face' ? main.clone().lerp(new T.Color(1, 1, 1), 0.38) : role === 'base' ? new T.Color(0.78, 0.82, 0.88) : nC.clone(); // 明亮版:本色 + 浅面,干净轻快
+  m.userData = { cat, role, night: nC, day: dC, bright: bC }; return (matCache[k] = m);
 }
 const devices = []; // 统一:0..799 节点,800.. 承载
 nodes.forEach((n, i) => { const p = L.nodes[i]; devices.push({ i, car: false, x: p.x, z: p.z, style: n['3D样式代码'], cat: n['3D样式大类'], isT: n['是否靶标'] === '是', dom: n['域'], zone: n['一级区域'], sub: n['二级子区'], grp: n['三级节点组'], name: n['节点名称'], cn: n['中文名·用途'], d: n, k: 1 }); });
@@ -6048,6 +6069,10 @@ nodeDevs.forEach((d, k) => ringN2.setColorAt(k, lin(DOMC[d.dom]))); ringN2.insta
 const arcT = fxPool(arcGeo, tgtDevs, fxMat({ alpha: 0.75, spin: 0.7 }), () => HY.NODE_Y + 0.008, d => d.foot * 1.05, 7);
 const coreT = fxPool(coreGeo, tgtDevs, fxMat({ alpha: 0.9, bob: 0.04, fres: 1 }), d => HY.NODE_Y + d.H + 0.2, () => 1, 8);
 const ringC = fxPool(new T.RingGeometry(0.5, 0.54, 4).rotateX(-Math.PI / 2).rotateY(Math.PI / 4), devices.filter(d => d.car), fxMat({ alpha: 0.5 }), () => HY.NODE_Y + 0.006, d => d.foot * 1.15, 7, gCarr);
+// 明亮版:设备脚下柔和接触阴影(径向渐变贴片,随节点移动;夜间/日间隐藏)
+const shTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 4, 32, 32, 32); g.addColorStop(0, 'rgba(15,23,42,0.55)'); g.addColorStop(0.55, 'rgba(15,23,42,0.18)'); g.addColorStop(1, 'rgba(15,23,42,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new T.CanvasTexture(c); })();
+const shadowFx = fxPool(new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), devices, new T.MeshBasicMaterial({ map: shTex, transparent: true, opacity: 0.5, depthWrite: false }), () => HY.NODE_Y + 0.002, d => d.foot * 1.75, 2);
+shadowFx.visible = false;
 
 /* ---------- 流向线:贴地直角折线 + 拐角收边 + 流动虚线 + 箭头 + 接头球 + 光点 ---------- */
 class PolyCurve extends T.Curve {
@@ -6107,7 +6132,7 @@ function applyLinkLook(day) {
   const C = { trunk: { laneN: '#3F9A6B', hotN: '#7CC4C0', laneD: '#2E6B4D', hotD: '#3A7F74' }, mgmt: { laneN: '#4F8FC0', hotN: '#9CC0DE', laneD: '#3A6A92', hotD: '#44779F' }, cross: { laneN: '#B5603F', hotN: '#D08A6A', laneD: '#9E4A36', hotD: '#B5603F' } }; // Unity 网络路径 / 安全设备蓝 / 攻击路径
   LK.forEach(l => {
     const c = C[l.grp] || C.trunk;
-    const lane = lin(day ? c.laneD : c.laneN), hot = lin(day ? c.hotD : c.hotN);
+    const br = isBright(), lane = lin(br ? brHex(c.laneN, 3.4) : day ? c.laneD : c.laneN), hot = lin(br ? brHex(c.hotN, 3.2) : day ? c.hotD : c.hotN);
     l.col.copy(day ? hot : lin(LINKC[l.grp])); l.hot.copy(hot);
     [l.main, l.halo].forEach(mesh => {
       const halo = mesh === l.halo, u = mesh.material.uniforms;
@@ -6246,7 +6271,7 @@ function applyState() {
   pools.forEach(setPool);
   const tint = (im, f) => { const o = im.userData.order; for (let i = 0; i < o.length; i++) { const d = devices[o[i]]; f(d, C1); im.setColorAt(i, C1); } im.instanceColor.needsUpdate = true; };
   const kk = d => Math.min(1.6, d.k);
-  const TW = dayOn0 => dayOn0 ? PAL_TD : PAL.warn; const isDay = document.body.classList.contains('day');
+  const TW = dayOn0 => dayOn0 ? (isBright() ? PAL_TB : PAL_TD) : PAL.warn; const isDay = document.body.classList.contains('day');
   tint(ringN, (d, c) => c.copy(lin(d.isT ? TW(isDay) : DOMC[d.dom])).multiplyScalar((d.isT ? 0.95 : 0.55) * kk(d)));
   tint(arcT, (d, c) => c.copy(lin(TW(isDay))).multiplyScalar(0.9 * kk(d)));
   tint(coreT, (d, c) => c.copy(lin(TW(isDay))).multiplyScalar(1.0 * kk(d)));
@@ -6262,7 +6287,7 @@ function applyState() {
     const on = !!(sel && !sel.car && m.dom === sel.dom && m.zone === sel.zone && m.sub === sel.sub && m.name === sel.grp);
     m.fill.material.opacity = on ? 0.2 : 0.022;
     m.line.material.opacity = on ? 1 : (dayOn ? 1 : 0.85);
-    m.line.material.color.copy(on ? lin(DOMC[m.dom]) : (dayOn ? m.day : m.dim));
+    m.line.material.color.copy(on ? lin(DOMC[m.dom]) : (dayOn ? (isBright() ? m.br : m.day) : m.dim));
     if (on) window.__grpOn = m.dom + '/' + m.name;
   });
   labelsDirty = true;
@@ -6302,10 +6327,10 @@ function buildEdgeLabels() {
 function edgeTheme(day) {
   EL.forEach(e => { const cv = e.cv, cx = cv.getContext('2d'), W = cv.width, H = cv.height, base = edgeColor(e.b);
     cx.clearRect(0, 0, W, H); const r = 16;
-    cx.fillStyle = day ? 'rgba(248,250,252,0.94)' : 'rgba(8,15,30,0.80)';
+    const brt = isBright(); cx.fillStyle = brt ? 'rgba(255,255,255,0.97)' : day ? 'rgba(248,250,252,0.94)' : 'rgba(8,15,30,0.80)';
     cx.beginPath(); cx.moveTo(r, 4); cx.lineTo(W - r, 4); cx.quadraticCurveTo(W - 2, 4, W - 2, r); cx.lineTo(W - 2, H - r); cx.quadraticCurveTo(W - 2, H - 4, W - r, H - 4); cx.lineTo(r, H - 4); cx.quadraticCurveTo(2, H - 4, 2, H - r); cx.lineTo(2, r); cx.quadraticCurveTo(2, 4, r, 4); cx.fill();
-    cx.lineWidth = 4; cx.strokeStyle = day ? dayHex(base, 3.0, 0.3) : base; cx.globalAlpha = day ? 0.9 : 0.75; cx.stroke(); cx.globalAlpha = 1;
-    cx.font = ELFONT; cx.textBaseline = 'middle'; cx.fillStyle = day ? dayHex(base, 4.8, 0.45) : '#' + new T.Color(base).lerp(new T.Color('#FFFFFF'), e.kind === 'grp' ? 0.2 : 0.45).getHexString();
+    cx.lineWidth = 4; cx.strokeStyle = brt ? brHex(base, 3.0) : day ? dayHex(base, 3.0, 0.3) : base; cx.globalAlpha = day ? 0.9 : 0.75; cx.stroke(); cx.globalAlpha = 1;
+    cx.font = ELFONT; cx.textBaseline = 'middle'; cx.fillStyle = brt ? brHex(base, 4.8) : day ? dayHex(base, 4.8, 0.45) : '#' + new T.Color(base).lerp(new T.Color('#FFFFFF'), e.kind === 'grp' ? 0.2 : 0.45).getHexString();
     const avail = W - 2 * 0.225 * H, tw = cx.measureText(e.txt).width; if (tw > avail) { cx.font = ELFONT.replace('64px', Math.floor(64 * avail / tw) + 'px'); } cx.textAlign = 'center'; cx.fillText(e.txt, W / 2, H / 2 + 3); cx.textAlign = 'left';
     e.m.material.map.needsUpdate = true; });
 }
@@ -6432,49 +6457,54 @@ $('#bClr').onclick = () => { Object.assign(S, { onlyT: false, dom: null, cat: nu
 function setPanel(open, refit) { $('#panel').classList.toggle('hide', !open); $('#bPanel').classList.toggle('on', open); host.classList.toggle('nopanel', !open); if (refit) setView(C.view === 'free' ? 'iso' : C.view); }
 $('#bPanel').onclick = () => setPanel($('#panel').classList.contains('hide'), true);
 $('#bloom').oninput = e => { const v = +e.target.value; bloom.strength = v / 100; $('#bloomV').textContent = v + '%'; };
+let brBgTex = null;
+function brightBg() { if (brBgTex) return brBgTex; const c = document.createElement('canvas'); c.width = 4; c.height = 256; const x = c.getContext('2d'), g = x.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0, '#FAFCFF'); g.addColorStop(0.55, '#F1F5FB'); g.addColorStop(1, '#EAF0F7'); x.fillStyle = g; x.fillRect(0, 0, 4, 256); brBgTex = new T.CanvasTexture(c); brBgTex.colorSpace = T.SRGBColorSpace; return brBgTex; }
 function applyTheme(day) {
-  document.body.classList.toggle('day', !!day);
-  const bg = day ? 0xe2e8f0 : 0x020617;
-  scene.background.setHex(bg); renderer.setClearColor(bg, 1);
+  const mode = day === 'bright' ? 'bright' : day ? 'day' : 'night'; THEME = mode; day = mode !== 'night'; const br = mode === 'bright';
+  document.body.classList.toggle('day', !!day); document.body.classList.toggle('bright', br);
+  const bg = br ? 0xF2F6FB : day ? 0xe2e8f0 : 0x020617;
+  scene.background = br ? brightBg() : new T.Color(bg); renderer.setClearColor(bg, 1);
+  if (typeof shadowFx !== 'undefined' && shadowFx) shadowFx.visible = br;
   if (groundGrid) {
-    groundGrid.material.uniforms.uDay.value = day ? 1 : 0;
+    groundGrid.material.uniforms.uDay.value = day ? 1 : 0; groundGrid.material.uniforms.uBr.value = br ? 1 : 0;
     groundGrid.material.blending = day ? T.NormalBlending : T.AdditiveBlending;
     groundGrid.material.needsUpdate = true;
   }
-  areaMats.forEach(m => { m.opacity = day ? 0.045 : 0.09; });
-  subFills.forEach(m => { m.opacity = day ? 0.04 : 0.07; });
-  zoneDash.forEach(m => { m.color.copy(day ? m.userData.day : m.userData.night); m.opacity = day ? 0.95 : 0.88; });
-  subEdges.forEach(m => { m.color.copy(day ? m.userData.day : m.userData.night); m.opacity = day ? 1 : 0.62; });
-  subCorners.forEach(m => { m.color.copy(day ? m.userData.day : m.userData.night); m.opacity = 1; });
-  grpGrids.forEach(m => { m.color.set(day ? 0x64748B : 0xcbd5e1); m.opacity = day ? 0.38 : 0.42; });
-  roadMats.forEach(m => { m.color.set(day ? 0xcbd5e1 : 0x1e293b); m.opacity = day ? 0.9 : 0.95; });
-  Object.values(matCache).forEach(m => m.uniforms.uColor.value.copy(day ? m.userData.day : m.userData.night));
+  areaMats.forEach(m => { if (!m.userData.c0) m.userData.c0 = m.color.clone(); m.color.copy(br ? m.userData.c0.clone().lerp(new T.Color(1, 1, 1), 0.8) : m.userData.c0); m.opacity = br ? 0.42 : day ? 0.045 : 0.09; });
+  subFills.forEach(m => { if (!m.userData.c0) m.userData.c0 = m.color.clone(); m.color.copy(br ? new T.Color(1, 1, 1) : m.userData.c0); m.opacity = br ? 0.82 : day ? 0.04 : 0.07; }); // 明亮版:二级白色底板
+  zoneDash.forEach(m => { m.color.copy(br ? m.userData.bright : day ? m.userData.day : m.userData.night); m.opacity = day ? 0.95 : 0.88; });
+  subEdges.forEach(m => { m.color.copy(br ? m.userData.bright : day ? m.userData.day : m.userData.night); m.opacity = day ? 1 : 0.62; });
+  subCorners.forEach(m => { m.color.copy(br ? m.userData.bright : day ? m.userData.day : m.userData.night); m.opacity = 1; });
+  grpGrids.forEach(m => { m.color.set(br ? 0x8FA3BC : day ? 0x64748B : 0xcbd5e1); m.opacity = br ? 0.34 : day ? 0.38 : 0.42; });
+  roadMats.forEach(m => { m.color.set(br ? 0xDDE6F1 : day ? 0xcbd5e1 : 0x1e293b); m.opacity = day ? 0.9 : 0.95; });
+  Object.values(matCache).forEach(m => m.uniforms.uColor.value.copy(br ? m.userData.bright : day ? m.userData.day : m.userData.night));
   LBL.forEach(l => { l.mw = 0; }); if (typeof edgeTheme === 'function') edgeTheme(!!day);
-  const dayChanged = window.__isDay !== !!day; window.__isDay = !!day;
+  const dayChanged = window.__isDay !== mode; window.__isDay = mode;
   if (dayChanged && typeof buildLinks === 'function' && LK.length) { buildLinks(); if (typeof applyState === 'function') applyState(); }
   else if (typeof applyLinkLook === 'function') applyLinkLook(!!day);
   if (typeof applyState === 'function' && typeof grpMark !== 'undefined') applyState();
   const fx = [[ringN, 0.5, 0.22], [ringN2, 0.38, 0.16], [arcT, 0.75, 0.4], [coreT, 0.9, 0.45]];
   fx.forEach(([im, n0, d0]) => { if (im && im.material.uniforms) im.material.uniforms.uAlpha.value = day ? d0 : n0; });
   if (bloom) {
-    const strength = day ? 0.08 : 0.2;
+    const strength = br ? 0.04 : day ? 0.08 : 0.2;
     bloom.strength = strength;
     const sl = $('#bloom'); if (sl) { sl.value = String(Math.round(strength * 100)); $('#bloomV').textContent = sl.value + '%'; }
   }
   const bt = $('#bTheme');
-  if (bt) { bt.textContent = day ? '☀ 日间' : '☾ 夜间'; bt.classList.toggle('on', !!day); }
-  try { localStorage.setItem('range-theme', day ? 'day' : 'night'); } catch (e) {}
+  if (bt) { bt.textContent = br ? '✦ 明亮' : day ? '☀ 日间' : '☾ 夜间'; bt.title = '主题:夜间 → 日间 → 明亮(快捷键 M)'; bt.classList.toggle('on', !!day); }
+  try { localStorage.setItem('range-theme', mode); } catch (e) {}
 }
 window.__setDay = applyTheme;
-window.__dayAudit = () => { const bg = new T.Color(DAYBG_HEX), out = { lines: [], text: [] }; const day = document.body.classList.contains('day');
+window.__dayAudit = () => { const B = isBright(), bg = new T.Color(B ? BRBG_HEX : DAYBG_HEX), out = { lines: [], text: [], bg: B ? BRBG_HEX : DAYBG_HEX }; const day = document.body.classList.contains('day'); const U = m => B ? m.userData.bright : m.userData.day;
   const push = (arr, name, c) => arr.push({ name, hex: '#' + c.getHexString(), cr: +crOf(c, bg).toFixed(2) });
-  zoneDash.forEach((m, i) => push(out.lines, 'L1虚线#' + i, m.userData.day));
-  subEdges.forEach((m, i) => push(out.lines, 'L2边#' + i, m.userData.day));
-  subCorners.forEach((m, i) => push(out.lines, 'L2角标#' + i, m.userData.day));
-  grpMark.forEach((m, i) => push(out.lines, 'L3框#' + i, m.day));
-  Object.keys(LINKD).forEach(g => push(out.lines, '流向' + g, new T.Color(LINKD[g])));
-  push(out.lines, '靶标', new T.Color(PAL_TD));
-  Object.keys(TC).forEach(k => push(out.lines, '图例' + k, new T.Color(TC[k][1])));
+  zoneDash.forEach((m, i) => push(out.lines, 'L1虚线#' + i, U(m)));
+  subEdges.forEach((m, i) => push(out.lines, 'L2边#' + i, U(m)));
+  subCorners.forEach((m, i) => push(out.lines, 'L2角标#' + i, U(m)));
+  grpMark.forEach((m, i) => push(out.lines, 'L3框#' + i, B ? m.br : m.day));
+  LK.forEach(l => push(out.lines, '流向' + l.id, l.main.material.uniforms.uLane.value.clone()));
+  push(out.lines, '靶标', new T.Color(B ? PAL_TB : PAL_TD));
+  Object.keys(TC).forEach(k => push(out.lines, '图例' + k, new T.Color(TC[k][B ? 2 : 1])));
   return out; };
 function syncDevices() {
   devices.forEach(d => { const p = d.car ? L.carriers[d.i] : L.nodes[d.i]; d.x = p.x; d.z = p.z; });
@@ -6517,7 +6547,7 @@ function applyDisp(v, persist) {
     groundGrid.position.set((x0 + x1) / 2, -0.01, (z0 + z1) / 2);
     groundGrid.material.uniforms.uC.value.set((x0 + x1) / 2, (z0 + z1) / 2);
   }
-  if (document.body.classList.contains('day')) applyTheme(true);
+  if (document.body.classList.contains('day')) applyTheme(isBright() ? 'bright' : true);
   setView(C.view === 'free' ? 'iso' : C.view, false);
   applyState();
 }
@@ -6535,9 +6565,10 @@ window.__decoCheck = () => { const m = new T.Matrix4(), v = new V3(); let max = 
   if (sl) sl.oninput = e => { const v = +e.target.value; if (lab) lab.textContent = String(v); const ticket = ++dispTick; requestAnimationFrame(() => { if (ticket === dispTick) applyDisp(v, true); }); };
 }
 let startDay = false;
-try { startDay = localStorage.getItem('range-theme') === 'day'; } catch (e) {}
+try { const th = localStorage.getItem('range-theme'); startDay = th === 'bright' ? 'bright' : th === 'day'; } catch (e) {}
 applyTheme(startDay);
-$('#bTheme').onclick = () => applyTheme(!document.body.classList.contains('day'));
+const cycleTheme = () => applyTheme(THEME === 'night' ? true : THEME === 'day' ? 'bright' : false);
+$('#bTheme').onclick = cycleTheme; window.__setTheme = m => applyTheme(m === 'bright' ? 'bright' : m === 'day');
 let qT = 0;
 $('#q').addEventListener('input', e => { clearTimeout(qT); qT = setTimeout(() => {
   S.q = e.target.value.trim().toLowerCase(); const box = $('#sres');
@@ -6552,6 +6583,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === '/') { e.preventDefault(); $('#q').focus(); }
   else if (e.key === 'Escape') { $('#bClr').click(); }
   else if (e.key === 'p' || e.key === 'P') $('#bPanel').click();
+  else if (e.key === 'm' || e.key === 'M') cycleTheme();
 });
 /* ---- 右侧面板 ---- */
 const P = $('#pbody');
